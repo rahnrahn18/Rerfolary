@@ -48,8 +48,6 @@ import com.kashif.folar.state.CameraConfiguration
 import com.kashif.imagesaverplugin.ImageSaverConfig
 import com.kashif.imagesaverplugin.ImageSaverPlugin
 import com.kashif.imagesaverplugin.rememberImageSaverPlugin
-import com.kashif.qrscannerplugin.QRScannerPlugin
-import com.kashif.qrscannerplugin.rememberQRScannerPlugin
 import com.kashif.ocrPlugin.OcrPlugin
 import com.kashif.ocrPlugin.rememberOcrPlugin
 // Utils
@@ -81,7 +79,6 @@ fun App() = AppTheme {
                 customFolderName = "Folar"
             )
         )
-        val qrScannerPlugin = rememberQRScannerPlugin()
         val ocrPlugin = rememberOcrPlugin()
 
         PermissionsHandler(
@@ -94,7 +91,6 @@ fun App() = AppTheme {
             if (useNewApi) {
                 CameraContent(
                     imageSaverPlugin = imageSaverPlugin,
-                    qrScannerPlugin = qrScannerPlugin,
                     ocrPlugin = ocrPlugin,
                     onToggleApi = { useNewApi = !useNewApi }
                 )
@@ -136,7 +132,6 @@ private fun PermissionsHandler(
 @Composable
 private fun CameraContent(
     imageSaverPlugin: ImageSaverPlugin,
-    qrScannerPlugin: QRScannerPlugin,
     ocrPlugin: OcrPlugin,
     onToggleApi: () -> Unit = {}
 ) {
@@ -148,16 +143,7 @@ private fun CameraContent(
     var configVersion by remember { mutableStateOf(0) }
 
     // Plugin output states
-    var detectedQR by remember { mutableStateOf<com.kashif.qrscannerplugin.QRResult?>(null) }
     var recognizedText by remember { mutableStateOf<String?>(null) }
-
-    // Collect plugin outputs
-    LaunchedEffect(qrScannerPlugin) {
-        qrScannerPlugin.getQrCodeFlow().collect { qr ->
-            detectedQR = qr
-            println("QR Code detected: ${qr.text}")
-        }
-    }
 
     LaunchedEffect(ocrPlugin) {
         ocrPlugin.ocrFlow.collect { text ->
@@ -180,7 +166,6 @@ private fun CameraContent(
         ),
         setupPlugins = { stateHolder ->
             stateHolder.attachPlugin(imageSaverPlugin)
-            stateHolder.attachPlugin(qrScannerPlugin)
             stateHolder.attachPlugin(ocrPlugin)
         }
     )
@@ -239,9 +224,7 @@ private fun CameraContent(
         InstagramCameraScreen(
             cameraState = state,
             imageSaverPlugin = imageSaverPlugin,
-            qrScannerPlugin = qrScannerPlugin,
             ocrPlugin = ocrPlugin,
-            detectedQR = detectedQR, // Now type QRResult?
             recognizedText = recognizedText,
             aspectRatio = aspectRatio,
             resolution = resolution,

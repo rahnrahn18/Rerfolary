@@ -80,6 +80,6 @@ dependencies {
     implementation("com.composables:icons-lucide-cmp:2.2.1")
 
     // Plugins dependencies
-    implementation(libs.core) // Zxing
+    // implementation(libs.core) // Removed QR Zxing
     implementation(libs.text.recognition) // MLKit
 }

@@ -78,8 +78,6 @@ import com.kashif.folar.state.FolarState
 import com.kashif.folar.utils.NativeBridge
 import com.kashif.imagesaverplugin.ImageSaverPlugin
 import com.kashif.ocrPlugin.OcrPlugin
-import com.kashif.qrscannerplugin.QRScannerPlugin
-import com.kashif.qrscannerplugin.QRResult
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -104,9 +102,7 @@ enum class CameraMode(val label: String) {
 fun InstagramCameraScreen(
     cameraState: FolarState.Ready,
     imageSaverPlugin: ImageSaverPlugin,
-    qrScannerPlugin: QRScannerPlugin,
     ocrPlugin: OcrPlugin,
-    detectedQR: QRResult?,
     recognizedText: String?,
     aspectRatio: AspectRatio,
     resolution: Pair<Int, Int>?,
@@ -133,7 +129,6 @@ fun InstagramCameraScreen(
     var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_3_4) } // Default to Portrait 3:4
 
     // Plugin States
-    var isQRScanningEnabled by remember { mutableStateOf(false) }
     var isOCREnabled by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -142,23 +137,7 @@ fun InstagramCameraScreen(
     LaunchedEffect(currentMode, cameraController) {
         // Reset plugin states
         // QR Scanning enabled in PHOTO and VIDEO modes
-        isQRScanningEnabled = (currentMode == CameraMode.PHOTO || currentMode == CameraMode.VIDEO)
         isOCREnabled = (currentMode == CameraMode.TEXT)
-
-        // Handle Plugin Activation
-        if (isQRScanningEnabled) {
-            // Wait for camera to be ready (rudimentary check, better to have isReady state)
-            delay(1000)
-            try {
-                qrScannerPlugin.startScanning()
-            } catch (e: Exception) {
-                // Ignore if camera not ready
-            }
-        } else {
-            try {
-                qrScannerPlugin.pauseScanning()
-            } catch (e: Exception) {}
-        }
 
         if (isOCREnabled) {
             delay(1000)
@@ -279,7 +258,6 @@ fun InstagramCameraScreen(
         PluginOutputs(
             modifier = Modifier.align(Alignment.Center),
             currentMode = currentMode,
-            detectedQR = detectedQR,
             recognizedText = recognizedText
         )
 
@@ -582,89 +560,9 @@ fun ShutterButton(
 fun PluginOutputs(
     modifier: Modifier,
     currentMode: CameraMode,
-    detectedQR: QRResult?,
     recognizedText: String?
 ) {
     val context = LocalContext.current
-
-    // Use Crossfade or explicit box with conditional visibility to prevent "LayoutNode detached" issues.
-    // Instead of completely removing the nodes from the tree, we keep them but handle visibility.
-    // Or simpler: Wrap in AnimatedVisibility which handles measurement transitions safely.
-
-    // QR Code Overlay (Tracking + Content)
-    val isQRVisible = (detectedQR != null && (currentMode == CameraMode.PHOTO || currentMode == CameraMode.VIDEO))
-
-    AnimatedVisibility(
-        visible = isQRVisible,
-        enter = fadeIn(),
-        exit = fadeOut(),
-        modifier = modifier.fillMaxSize()
-    ) {
-        if (detectedQR != null) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                // Draw tracking lines
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                     val canvasWidth = size.width
-                     val canvasHeight = size.height
-
-                     if (detectedQR.points.size >= 3) {
-                         val path = Path().apply {
-                             val p0 = detectedQR.points[0]
-                             moveTo(p0.first * canvasWidth, p0.second * canvasHeight)
-
-                             for (i in 1 until detectedQR.points.size) {
-                                 val p = detectedQR.points[i]
-                                 lineTo(p.first * canvasWidth, p.second * canvasHeight)
-                             }
-                             close()
-                         }
-
-                         drawPath(
-                             path = path,
-                             color = Color.Yellow,
-                             style = Stroke(width = 8f)
-                         )
-
-                         for (point in detectedQR.points) {
-                             drawCircle(
-                                 color = Color.Yellow,
-                                 radius = 16f,
-                                 center = Offset(point.first * canvasWidth, point.second * canvasHeight)
-                             )
-                         }
-                     }
-                }
-
-                // Clickable Content Overlay
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(16.dp)
-                        .clickable {
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(detectedQR.text))
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                try {
-                                    val searchIntent = Intent(Intent.ACTION_WEB_SEARCH)
-                                    searchIntent.putExtra(android.app.SearchManager.QUERY, detectedQR.text)
-                                    context.startActivity(searchIntent)
-                                } catch (e2: Exception) {}
-                            }
-                        },
-                    color = Color.Yellow.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(8.dp),
-                    border = androidx.compose.foundation.BorderStroke(2.dp, Color.Black)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("QR Detected 🔗", fontWeight = FontWeight.Bold, color = Color.Black)
-                        Text(detectedQR.text, color = Color.Blue, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        Text("Tap to open", style = MaterialTheme.typography.labelSmall, color = Color.Black.copy(alpha = 0.7f))
-                    }
-                }
-            }
-        }
-    }
 
     // Text OCR Overlay
     val isTextVisible = (currentMode == CameraMode.TEXT && recognizedText != null)
