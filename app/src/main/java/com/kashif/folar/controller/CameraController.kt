@@ -4,13 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.hardware.camera2.CameraCharacteristics
 import android.media.ExifInterface
 import android.util.Log
 import android.util.Size
 import androidx.annotation.OptIn
-import androidx.camera.camera2.interop.Camera2CameraInfo
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -160,69 +157,14 @@ class CameraController(
     /**
      * Creates a camera selector based on lens facing and device type.
      */
-    @OptIn(ExperimentalCamera2Interop::class)
     private fun createCameraSelector(): CameraSelector {
         val builder = CameraSelector.Builder()
             .requireLensFacing(cameraLens.toCameraXLensFacing())
 
-        when (cameraDeviceType) {
-            CameraDeviceType.WIDE_ANGLE, CameraDeviceType.DEFAULT -> {
-                // Default camera, no filter needed
-            }
-            CameraDeviceType.TELEPHOTO -> {
-                builder.addCameraFilter { cameraInfos ->
-                    cameraInfos.filter { cameraInfo ->
-                        try {
-                            val camera2Info = Camera2CameraInfo.from(cameraInfo)
-                            val focalLengths = camera2Info.getCameraCharacteristic(
-                                CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
-                            )?.toList() ?: emptyList()
-                            focalLengths.any { it > 4.0f }
-                        } catch (e: Exception) {
-                            false
-                        }
-                    }.ifEmpty { 
-                        Log.w("Folar", "Telephoto camera not available, using default")
-                        cameraInfos.take(1)
-                    }
-                }
-            }
-            CameraDeviceType.ULTRA_WIDE -> {
-                builder.addCameraFilter { cameraInfos ->
-                    cameraInfos.filter { cameraInfo ->
-                        try {
-                            val camera2Info = Camera2CameraInfo.from(cameraInfo)
-                            val focalLengths = camera2Info.getCameraCharacteristic(
-                                CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
-                            )?.toList() ?: emptyList()
-                            focalLengths.any { it < 2.5f }
-                        } catch (e: Exception) {
-                            false
-                        }
-                    }.ifEmpty {
-                        Log.w("Folar", "Ultra-wide camera not available, using default")
-                        cameraInfos.take(1)
-                    }
-                }
-            }
-            CameraDeviceType.MACRO -> {
-                builder.addCameraFilter { cameraInfos ->
-                    cameraInfos.filter { cameraInfo ->
-                        try {
-                            val camera2Info = Camera2CameraInfo.from(cameraInfo)
-                            val minFocusDistance = camera2Info.getCameraCharacteristic(
-                                CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE
-                            ) ?: 0f
-                            minFocusDistance > 0f && minFocusDistance < 0.2f
-                        } catch (e: Exception) {
-                            false
-                        }
-                    }.ifEmpty {
-                        Log.w("Folar", "Macro camera not available, using default")
-                        cameraInfos.take(1)
-                    }
-                }
-            }
+        // Logic for specific device types is simplified as we removed Camera2 interop
+        // We just log a warning if a specific non-standard type is requested
+        if (cameraDeviceType != CameraDeviceType.DEFAULT && cameraDeviceType != CameraDeviceType.WIDE_ANGLE) {
+             Log.w("Folar", "CameraDeviceType $cameraDeviceType requested but using default lens facing due to Camera2 removal.")
         }
         
         return builder.build()
@@ -249,17 +191,28 @@ class CameraController(
     }
 
     fun updateImageAnalyzer() {
-        camera?.let {
-            cameraProvider?.unbind(imageAnalyzer)
-            imageAnalyzer?.let { analyzer ->
-                cameraProvider?.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.Builder().requireLensFacing(cameraLens.toCameraXLensFacing())
-                        .build(),
-                    analyzer
-                )
+        // If camera is already bound, we need to rebind to include the new analyzer
+        if (camera != null && cameraProvider != null) {
+            try {
+                // Unbind existing analyzer if any
+                cameraProvider?.unbind(imageAnalyzer)
+
+                imageAnalyzer?.let { analyzer ->
+                    cameraProvider?.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.Builder().requireLensFacing(cameraLens.toCameraXLensFacing()).build(),
+                        analyzer
+                    )
+                }
+            } catch (e: Exception) {
+                 Log.e("Folar", "Failed to update image analyzer: ${e.message}")
             }
-        } ?: throw InvalidConfigurationException("Camera not initialized.")
+        } else {
+            // Camera not ready yet.
+            // The analyzer is already assigned to the field `imageAnalyzer`.
+            // It will be bound when bindCamera() executes.
+            Log.d("Folar", "Camera not initialized yet, analyzer will be bound later.")
+        }
     }
 
     @Deprecated(
@@ -469,8 +422,6 @@ class CameraController(
         output: ImageCapture.OutputFileResults,
         quality: Int
     ): ByteArray? {
-        // Implementation remains same as before (omitted for brevity in prompt context but included in file)
-        // Re-using the same logic...
          return try {
             output.savedUri?.let { uri ->
                 val tempFile = createTempFile("temp_image", ".jpg")
