@@ -681,12 +681,8 @@ private suspend fun handlePhotoCapture(
             println("Image captured: ${result.filePath}")
             try {
                 withContext(Dispatchers.IO) {
-                    // 1. Native Processing (Lighting Only)
-                    try {
-                        NativeBridge.processImage(result.filePath)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                    // 1. Native Processing REMOVED for stability
+                    // We rely purely on Kotlin for Aspect Ratio cropping.
 
                     // 2. Kotlin Cropping (If needed)
                     // CameraX outputs 4:3 or 16:9. We need to crop to target ratio.
