@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import android.graphics.BitmapFactory
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
 import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Flashlight
@@ -121,29 +124,64 @@ fun InstagramCameraScreen(
     var isQRScanningEnabled by remember { mutableStateOf(false) }
     var isOCREnabled by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
+
     // Logic to handle mode switching side effects
-    LaunchedEffect(currentMode) {
+    LaunchedEffect(currentMode, cameraController) {
         // Reset plugin states
         isQRScanningEnabled = (currentMode == CameraMode.SCAN)
         isOCREnabled = (currentMode == CameraMode.TEXT)
 
         // Handle Plugin Activation
         if (isQRScanningEnabled) {
-            delay(500)
-            qrScannerPlugin.startScanning()
+            // Wait for camera to be ready (rudimentary check, better to have isReady state)
+            delay(1000)
+            try {
+                qrScannerPlugin.startScanning()
+            } catch (e: Exception) {
+                // Ignore if camera not ready
+            }
         } else {
-            qrScannerPlugin.pauseScanning()
+            try {
+                qrScannerPlugin.pauseScanning()
+            } catch (e: Exception) {}
         }
 
         if (isOCREnabled) {
-            delay(500)
-            ocrPlugin.startRecognition()
+            delay(1000)
+            try {
+                ocrPlugin.startRecognition()
+            } catch (e: Exception) {
+                // Ignore
+            }
         } else {
-            ocrPlugin.stopRecognition()
+             try {
+                ocrPlugin.stopRecognition()
+            } catch (e: Exception) {}
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Transparent)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    change.consume()
+                    if (dragAmount < -50) {
+                        // Swipe Left
+                         val modes = CameraMode.entries
+                         val nextIndex = (modes.indexOf(currentMode) + 1).coerceAtMost(modes.size - 1)
+                         currentMode = modes[nextIndex]
+                    } else if (dragAmount > 50) {
+                        // Swipe Right
+                         val modes = CameraMode.entries
+                         val prevIndex = (modes.indexOf(currentMode) - 1).coerceAtLeast(0)
+                         currentMode = modes[prevIndex]
+                    }
+                }
+            }
+    ) {
 
         // 1. Fullscreen Preview Overlay (already handled by FolarScreen under this, but we put UI on top)
         // Note: FolarScreen renders the preview. We are just the UI overlay.
@@ -200,8 +238,17 @@ fun InstagramCameraScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Gallery (Placeholder)
+                    val context = LocalContext.current
                     IconButton(
-                        onClick = { /* Open Gallery */ },
+                        onClick = {
+                            // Try to open gallery
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // Fallback
+                            }
+                        },
                         modifier = Modifier
                             .size(48.dp)
                             .border(1.dp, Color.White, RoundedCornerShape(8.dp))
@@ -242,9 +289,20 @@ fun InstagramCameraScreen(
                                                     try {
                                                         val outputFile = File(videoFile.parent, "STAB_${videoFile.name}")
                                                         NativeBridge.stabilizeVideo(videoFile.absolutePath, outputFile.absolutePath)
+
+                                                        // Update the video file reference if we want to preview/save the stabilized one
+                                                        // For now, we just notify the gallery of the new file
+                                                        android.media.MediaScannerConnection.scanFile(
+                                                            context,
+                                                            arrayOf(outputFile.absolutePath),
+                                                            arrayOf("video/mp4"),
+                                                            null
+                                                        )
+
                                                         withContext(Dispatchers.Main) {
                                                             isStabilizing = false
-                                                            // Optional: Preview result
+                                                            // Provide feedback to user
+                                                            android.widget.Toast.makeText(context, "Video stabilized and saved!", android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     } catch (e: Exception) {
                                                         e.printStackTrace()
@@ -268,10 +326,9 @@ fun InstagramCameraScreen(
                     // Switch Camera
                     IconButton(
                         onClick = {
-                            onCameraDeviceTypeChange(
-                                if (cameraDeviceType == CameraDeviceType.DEFAULT) CameraDeviceType.WIDE_ANGLE else CameraDeviceType.DEFAULT // Dummy logic, better to toggle lens
-                            )
                             cameraController.toggleCameraLens()
+                            // Force state update to refresh UI if needed, though toggleCameraLens should trigger recomposition if state is observed correctly
+                            // We can also cycle device types if that's what user expects, but usually switch is Front/Back
                         },
                         modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)
                     ) {
