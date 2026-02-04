@@ -1,4 +1,4 @@
-package org.company.app.theme
+package com.kashif.folar.company.app.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -90,4 +90,3 @@ internal fun AppTheme(
         )
     }
 }
-

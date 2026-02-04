@@ -19,6 +19,19 @@ android {
         ndk {
             abiFilters.add("arm64-v8a")
         }
+        externalNativeBuild {
+            cmake {
+                cppFlags("-std=c++17")
+                arguments("-DANDROID_STL=c++_shared")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path("src/main/jni/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {
@@ -54,6 +67,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.extensions)
+    implementation("androidx.camera:camera-video:1.3.1")
 
     implementation(libs.androidx.startup.runtime)
     implementation(libs.kotlinx.coroutines.android)
@@ -66,7 +80,4 @@ dependencies {
     // Plugins dependencies
     implementation(libs.core) // Zxing
     implementation(libs.text.recognition) // MLKit
-
-    implementation(project(":gpupixel"))
-    // implementation("com.github.Erfan-Ahmadi:BokehDepthOfField:master-SNAPSHOT")
 }

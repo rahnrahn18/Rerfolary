@@ -4,15 +4,16 @@
 
     <uses-feature android:name="android.hardware.camera" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
-        android:name="org.company.app.Application"
+        android:name="com.kashif.folar.company.app.Application"
         android:icon="@android:drawable/ic_menu_compass"
-        android:label="CameraSample"
+        android:label="Folar"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
-            android:name="org.company.app.AppActivity"
+            android:name="com.kashif.folar.company.app.AppActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="true"
             android:launchMode="singleInstance"
