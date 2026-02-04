@@ -1,4 +1,4 @@
-package org.company.app
+package com.kashif.folar.company.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

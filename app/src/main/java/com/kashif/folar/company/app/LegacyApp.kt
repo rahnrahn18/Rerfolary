@@ -1,4 +1,4 @@
-package org.company.app
+package com.kashif.folar.company.app
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
