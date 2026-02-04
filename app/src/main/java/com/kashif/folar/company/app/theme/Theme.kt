@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.kashif.folar.company.app.theme
 
 import androidx.compose.foundation.IndicationInstance
@@ -84,7 +85,6 @@ private object NoRippleIndication : IndicationNodeFactory {
     }
 
     @Composable
-    @Suppress("DEPRECATION")
     override fun rememberUpdatedInstance(interactionSource: InteractionSource): IndicationInstance {
         return object : IndicationInstance {
             override fun ContentDrawScope.drawIndication() {
