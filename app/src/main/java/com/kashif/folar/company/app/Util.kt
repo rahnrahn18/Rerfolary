@@ -1,4 +1,4 @@
-package org.company.app
+package com.kashif.folar.company.app
 
 /**
  * Multiplatform-safe alternative to `String.format` for simple numeric formatting.
@@ -84,4 +84,3 @@ private fun Double.pow(n: Int): Double {
     }
     return result
 }
-

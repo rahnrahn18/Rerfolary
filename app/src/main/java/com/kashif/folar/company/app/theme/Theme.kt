@@ -1,11 +1,24 @@
-package org.company.app.theme
+package com.kashif.folar.company.app.theme
 
+import android.app.Activity
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.*
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+
+// --- HAPUS DEFINISI WARNA DI SINI KARENA SUDAH ADA DI Color.kt ---
+// Kita langsung pakai variabel dari Color.kt (md_theme_light_...)
 
 private val LightColorScheme = lightColorScheme(
     primary = md_theme_light_primary,
@@ -71,23 +84,36 @@ private val DarkColorScheme = darkColorScheme(
     scrim = md_theme_dark_scrim,
 )
 
-internal val LocalThemeIsDark = compositionLocalOf { mutableStateOf(true) }
+// Definisi Typography sederhana agar tidak Unresolved Reference
+val AppTypography = Typography()
 
-@Composable // FIX 1: Wajib ada karena memanggil MaterialTheme & remember
-internal fun AppTheme(
-    content: @Composable () -> Unit // FIX 2: Parameter ini wajib ada untuk menerima konten UI
+@Composable
+fun AppTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit
 ) {
-    val systemIsDark = isSystemInDarkTheme()
-    val isDarkState = remember { mutableStateOf(systemIsDark) }
-    CompositionLocalProvider(
-        LocalThemeIsDark provides isDarkState
-    ) {
-        val isDark by isDarkState
-        SystemAppearance(!isDark)
-        MaterialTheme(
-            colorScheme = if (isDark) DarkColorScheme else LightColorScheme,
-            content = { Surface(content = content) }
-        )
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
     }
-}
 
+    // Panggil SystemAppearance yang ada di ThemeAndroid.kt
+    // Kita tidak mendefinisikannya lagi di sini agar tidak konflik
+    SystemAppearance(!darkTheme)
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = AppTypography, 
+        content = {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                content = content
+            )
+        }
+    )
+}

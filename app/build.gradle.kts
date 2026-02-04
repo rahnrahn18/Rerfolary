@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.kashif.folar"
     compileSdk = 35
+    buildToolsVersion = "35.0.1"
 
     defaultConfig {
         applicationId = "com.kashif.folar.app"
@@ -18,6 +19,20 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters.add("arm64-v8a")
+        }
+        ndkVersion = "27.1.12297006"
+        externalNativeBuild {
+            cmake {
+                cppFlags("-std=c++17")
+                arguments("-DANDROID_STL=c++_shared")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path("src/main/jni/CMakeLists.txt")
+            version = "4.1.1"
         }
     }
 
@@ -54,6 +69,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.extensions)
+    implementation("androidx.camera:camera-video:1.3.1")
 
     implementation(libs.androidx.startup.runtime)
     implementation(libs.kotlinx.coroutines.android)
@@ -66,7 +82,4 @@ dependencies {
     // Plugins dependencies
     implementation(libs.core) // Zxing
     implementation(libs.text.recognition) // MLKit
-
-    implementation(project(":gpupixel"))
-    // implementation("com.github.Erfan-Ahmadi:BokehDepthOfField:master-SNAPSHOT")
 }

@@ -1,0 +1,67 @@
+[versions]
+
+atomicfu = "0.29.0"
+camera-core = "1.5.1"
+camera-extensions = "1.5.1"
+camera-lifecycle = "1.5.1"
+camera-view = "1.5.1"
+core = "3.5.3"
+coreVersion = "3.5.3"
+javase = "3.5.3"
+kotlin = "2.1.0"
+agp = "8.9.1"
+kotlinx-coroutines = "1.10.2"
+kermit = "2.0.8"
+
+compose-multiplatform = "1.9.3"
+activity = "1.9.2" # https://developer.android.com/jetpack/androidx/releases/activity
+coil-mp-version = "3.3.0"
+lucide-icons = "2.2.1"
+jetbrains-kotlin-jvm = "2.1.0"
+androidx-activityCompose = "1.9.3"
+startupRuntime = "1.2.0"
+javacvPlatform = "1.5.12"
+javacpp = "1.5.12"
+videoinput = "1.5.12"
+tesseractPlatform = "5.5.1-1.5.12"
+textRecognition = "16.0.1"
+
+[libraries]
+
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camera-view" }
+androidx-startup-runtime = { module = "androidx.startup:startup-runtime", version.ref = "startupRuntime" }
+atomicfu = { module = "org.jetbrains.kotlinx:atomicfu", version.ref = "atomicfu" }
+camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camera-core" }
+camera-core = { module = "androidx.camera:camera-core", version.ref = "camera-core" }
+camera-extensions = { module = "androidx.camera:camera-extensions", version.ref = "camera-extensions" }
+camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camera-lifecycle" }
+core = { module = "com.google.zxing:core", version.ref = "core" }
+core-v351 = { module = "com.google.zxing:core", version.ref = "coreVersion" }
+javase = { module = "com.google.zxing:javase", version.ref = "javase" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
+kermit = { module = "co.touchlab:kermit", version.ref = "kermit" }
+composeGradle = { module = "org.jetbrains.compose:compose-gradle-plugin", version.ref = "compose-multiplatform" }
+
+coil3 = { module = "io.coil-kt.coil3:coil", version.ref = "coil-mp-version" }
+coil3-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil-mp-version" }
+coil3-compose-core = { module = "io.coil-kt.coil3:coil-compose-core", version.ref = "coil-mp-version" }
+coil3-ktor = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil-mp-version" }
+androidx-activityCompose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
+lucide-icons-cmp = { module = "com.composables:icons-lucide-cmp", version.ref = "lucide-icons" }
+
+javacv-platform = { module = "org.bytedeco:javacv-platform", version.ref = "javacvPlatform" }
+javacpp = { module = "org.bytedeco:javacpp", version.ref = "javacpp" }
+videoinput = { module = "org.bytedeco:videoinput", version.ref = "videoinput" }
+tesseract-platform = { module = "org.bytedeco:tesseract-platform", version.ref = "tesseractPlatform" }
+text-recognition = { module = "com.google.mlkit:text-recognition", version.ref = "textRecognition" }
+
+[plugins]
+
+multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+jetbrains-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "jetbrains-kotlin-jvm" }
+android-application = { id = "com.android.application", version.ref = "agp" }

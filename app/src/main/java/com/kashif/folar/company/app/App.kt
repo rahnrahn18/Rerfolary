@@ -1,4 +1,4 @@
-package org.company.app
+package com.kashif.folar.company.app
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -108,7 +108,7 @@ import com.kashif.ocrPlugin.rememberOcrPlugin
 // Utils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.company.app.theme.AppTheme
+import com.kashif.folar.company.app.theme.AppTheme
 
 /**
  * Main entry point for the Folar sample application.
@@ -1010,4 +1010,3 @@ private fun OcrOutputOverlay(modifier: Modifier = Modifier, recognizedText: Stri
         }
     }
 }
-
