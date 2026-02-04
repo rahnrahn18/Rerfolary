@@ -53,12 +53,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import android.graphics.BitmapFactory
 import androidx.compose.ui.platform.LocalContext
-import android.content.Intent
 import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Flashlight
 import com.composables.icons.lucide.FlashlightOff
-import com.composables.icons.lucide.Image
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Settings
 import com.composables.icons.lucide.SwitchCamera
