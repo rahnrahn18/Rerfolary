@@ -365,8 +365,8 @@ fun InstagramCameraScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         CircularProgressIndicator(color = Color.Black)
-                        val title = if (isStabilizing) "Stabilizing Video..." else "Optimizing Photo..."
-                        val sub = if (isStabilizing) "Please wait while we process using NativeBridge + OpenCV" else "Applying Noise Killer, Detail Booster & Smart Lighting..."
+                        val title = if (isStabilizing) "Stabilizing Video..." else "Beautifying & Lighting..."
+                        val sub = if (isStabilizing) "Please wait while we process using NativeBridge + OpenCV" else "Applying Face Smoothing & Auto Smart Light..."
                         Text(title, fontWeight = FontWeight.Bold, color = Color.Black)
                         Text(sub, style = MaterialTheme.typography.bodySmall, color = Color.Gray, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }

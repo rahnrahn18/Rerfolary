@@ -260,7 +260,7 @@ Java_com_kashif_folar_utils_NativeBridge_processImage(
     jstring jPath) {
 
     const char* path = env->GetStringUTFChars(jPath, 0);
-    LOGI("Starting Super Detail processing for: %s", path);
+    LOGI("Starting Beauty & Smart Light processing for: %s", path);
 
     Mat img = imread(path);
     if (img.empty()) {
@@ -269,40 +269,74 @@ Java_com_kashif_folar_utils_NativeBridge_processImage(
         return;
     }
 
-    Mat step1, step2, step3;
+    Mat current = img.clone();
+    Mat next_step;
 
-    // 1. Noise Killer (Non-Local Means Denoising)
-    // "Reaksi User harus: Gila, fotonya bersih banget padahal malam!"
-    // h=20 (requested), hColor=20, templateWindowSize=7, searchWindowSize=21
-    LOGI("Step 1: Noise Killer (h=20)");
-    fastNlMeansDenoisingColored(img, step1, 20, 20, 7, 21);
+    // 1. Noise Killer (Reduced Strength)
+    // Requested: h=2 (was 20)
+    // This is very mild, just to remove digital grit without losing texture
+    LOGI("Step 1: Noise Killer (h=2)");
+    fastNlMeansDenoisingColored(current, next_step, 2, 2, 7, 21);
+    current = next_step.clone();
 
-    // 2. Detail Booster (Detail Enhance)
-    // "Meningkatkan kontras mikro... Jangan set terlalu tinggi agar tidak terlihat seperti kartun."
-    LOGI("Step 2: Detail Booster");
-    // detailEnhance defaults: sigma_s=10, sigma_r=0.15. We'll stick to defaults or slightly tweak if needed.
-    // The user said "Jangan set terlalu tinggi". Defaults are usually safe.
-    detailEnhance(step1, step2, 10, 0.15f);
+    // 2. Face Smoothing (Bilateral Filter)
+    // Replaces Detail Booster.
+    // Keeps edges sharp (eyes, hair) but blurs flat areas (skin).
+    // d=9, sigmaColor=75, sigmaSpace=75 are standard "beauty" parameters.
+    LOGI("Step 2: Face Smoothing (Bilateral Filter)");
+    bilateralFilter(current, next_step, 9, 75, 75);
+    current = next_step.clone();
 
     // 3. Smart Lighting (CLAHE on Luminance)
-    // "Ini adalah HDR versi ringan... Dia akan menerangkan bagian gelap tanpa membuat bagian terang over-exposed."
+    // We keep this but ensure it's not too aggressive.
     LOGI("Step 3: Smart Lighting (CLAHE)");
     Mat lab;
-    cvtColor(step2, lab, COLOR_BGR2Lab);
+    cvtColor(current, lab, COLOR_BGR2Lab);
 
     vector<Mat> lab_planes;
     split(lab, lab_planes);
 
     Ptr<CLAHE> clahe = createCLAHE();
-    clahe->setClipLimit(2.0); // Standard "light" limit
-    clahe->setTilesGridSize(Size(8, 8)); // Standard grid
-    clahe->apply(lab_planes[0], lab_planes[0]); // Apply to L channel
+    clahe->setClipLimit(2.0); // Standard
+    clahe->setTilesGridSize(Size(8, 8));
+    clahe->apply(lab_planes[0], lab_planes[0]);
 
     merge(lab_planes, lab);
-    cvtColor(lab, step3, COLOR_Lab2BGR);
+    cvtColor(lab, next_step, COLOR_Lab2BGR);
+    current = next_step.clone();
+
+    // 4. Auto Light (Gamma Correction)
+    // "Otomatiskan settingan keseluruhan... auto deteksi cahaya"
+    // We calculate mean brightness. If < 100 (dark), gamma < 1.0 (brighten). If > 160 (bright), gamma > 1.0 (darken).
+    // Target midpoint ~128.
+    LOGI("Step 4: Auto Light (Gamma Correction)");
+    Scalar mean_val = mean(current);
+    double brightness = (mean_val[0] + mean_val[1] + mean_val[2]) / 3.0;
+    LOGI("Detected Brightness: %.2f", brightness);
+
+    double gamma = 1.0;
+    // Simple logic: Target 128. Gamma = log(target/255) / log(current/255)
+    // Or simpler heuristic:
+    if (brightness > 0) {
+        // We clamp correction to avoid extreme washing out or darkening
+        // E.g. limit gamma between 0.6 (brighten significantly) and 1.5 (darken)
+        gamma = log(0.5) / log(brightness / 255.0);
+        // Clamp gamma
+        gamma = std::max(0.6, std::min(gamma, 1.4));
+    }
+    LOGI("Applying Gamma: %.2f", gamma);
+
+    if (abs(gamma - 1.0) > 0.05) {
+        Mat lookUpTable(1, 256, CV_8U);
+        uchar* p = lookUpTable.ptr();
+        for( int i = 0; i < 256; ++i)
+            p[i] = saturate_cast<uchar>(pow(i / 255.0, gamma) * 255.0);
+        LUT(current, next_step, lookUpTable);
+        current = next_step.clone();
+    }
 
     // Save Result (Overwrite)
-    if (imwrite(path, step3)) {
+    if (imwrite(path, current)) {
         LOGI("Successfully saved processed image");
     } else {
         LOGE("Failed to save processed image");
