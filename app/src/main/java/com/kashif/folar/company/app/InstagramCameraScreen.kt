@@ -2,7 +2,7 @@ package com.kashif.folar.company.app
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Image as ComposeImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,6 +57,7 @@ import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Flashlight
 import com.composables.icons.lucide.FlashlightOff
+import com.composables.icons.lucide.Image
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Settings
 import com.composables.icons.lucide.SwitchCamera
@@ -262,7 +263,7 @@ fun InstagramCameraScreen(
                             .clip(RoundedCornerShape(8.dp))
                     ) {
                         lastCapturedImage?.let {
-                             Image(bitmap = it, contentDescription = "Gallery", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                             ComposeImage(bitmap = it, contentDescription = "Gallery", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                         } ?: Icon(imageVector = Lucide.Image, contentDescription = "Gallery", tint = Color.White)
                     }
 
