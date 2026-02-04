@@ -127,7 +127,7 @@ fun InstagramCameraScreen(
     // Removed isProcessingPhoto (no longer blocking)
     var lastCapturedImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var flashMode by remember { mutableStateOf(FlashMode.OFF) }
-    var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_4_3) }
+    var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_3_4) } // Default to Portrait 3:4
 
     // Plugin States
     var isQRScanningEnabled by remember { mutableStateOf(false) }
@@ -197,19 +197,18 @@ fun InstagramCameraScreen(
         // Note: FolarScreen renders the preview. We are just the UI overlay.
 
         // 1.5 Letterboxing Masks
-        // Simulate ratio masking. Usually camera preview is Fill Center.
-        // We add black bars if ratio is not Full.
         val ratioValue = when(selectedRatio) {
             AspectRatio.RATIO_4_3 -> 3f/4f
+            AspectRatio.RATIO_3_4 -> 3f/4f // Portrait 3:4 is physically same ratio value (0.75) for math
             AspectRatio.RATIO_16_9 -> 9f/16f
             AspectRatio.RATIO_1_1 -> 1f
             AspectRatio.RATIO_9_16 -> 9f/16f
+            AspectRatio.RATIO_4_5 -> 4f/5f
         }
 
         // Draw black bars (Letterboxing)
-        // Note: This assumes a portrait screen.
-        // 1:1 and 4:3 need Top/Bottom bars. 16:9/9:16 usually fills more.
-        if (selectedRatio != AspectRatio.RATIO_9_16) { // Assume 9:16 is "Full" on most phones
+        // We show bars for everything except 9:16 which is "Full" for this context
+        if (selectedRatio != AspectRatio.RATIO_9_16) {
              Canvas(modifier = Modifier.fillMaxSize()) {
                  val screenW = size.width
                  val screenH = size.height
@@ -248,22 +247,24 @@ fun InstagramCameraScreen(
             },
             selectedRatio = selectedRatio,
             onRatioToggle = {
-                // Cycle: 4:3 -> 16:9 -> 1:1 -> 9:16 (Fullish)
+                // Cycle: 1:1 -> 4:5 -> 3:4 -> 9:16
                 val newRatio = when(selectedRatio) {
-                    AspectRatio.RATIO_4_3 -> AspectRatio.RATIO_16_9
-                    AspectRatio.RATIO_16_9 -> AspectRatio.RATIO_1_1
-                    AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_9_16
-                    AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_4_3
+                    AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_5
+                    AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_3_4
+                    AspectRatio.RATIO_3_4 -> AspectRatio.RATIO_9_16
+                    AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_1_1
+                    else -> AspectRatio.RATIO_1_1 // Default fallback for old states
                 }
 
                 selectedRatio = newRatio
-                // Note: onAspectRatioChange usually tells CameraX what resolution to pick.
-                // CameraX usually only supports 4:3 and 16:9 directly.
-                // We map 1:1 to 4:3 (closest) and 9:16 to 16:9.
+
+                // Map to CameraX supported ratios (4:3 or 16:9)
                 val cameraXRatio = when(newRatio) {
                     AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_3
+                    AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_4_3
+                    AspectRatio.RATIO_3_4 -> AspectRatio.RATIO_4_3
                     AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_16_9
-                    else -> newRatio
+                    else -> AspectRatio.RATIO_4_3
                 }
                 onAspectRatioChange(cameraXRatio)
             },
@@ -342,6 +343,11 @@ fun InstagramCameraScreen(
                                     scope.launch {
                                         // Calculate float ratio for native
                                         val ratioFloat = when(selectedRatio) {
+                                            AspectRatio.RATIO_1_1 -> 1.0f
+                                            AspectRatio.RATIO_4_5 -> 0.8f
+                                            AspectRatio.RATIO_3_4 -> 0.75f
+                                            AspectRatio.RATIO_9_16 -> 0.5625f
+                                            // Handle legacy just in case
                                             AspectRatio.RATIO_4_3 -> 0.75f
                                             AspectRatio.RATIO_16_9 -> 0.5625f
                                         }
@@ -474,10 +480,13 @@ fun TopControlBar(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             // Aspect Ratio Button
             val ratioText = when(selectedRatio) {
-                AspectRatio.RATIO_4_3 -> "4:3"
-                AspectRatio.RATIO_16_9 -> "16:9"
                 AspectRatio.RATIO_1_1 -> "1:1"
-                AspectRatio.RATIO_9_16 -> "9:16" // Used as "Full" approx
+                AspectRatio.RATIO_4_5 -> "4:5"
+                AspectRatio.RATIO_3_4 -> "3:4"
+                AspectRatio.RATIO_9_16 -> "9:16"
+                // Handle legacy enums just in case to avoid crash, map to nearest visual
+                AspectRatio.RATIO_4_3 -> "3:4"
+                AspectRatio.RATIO_16_9 -> "9:16"
             }
             Text(
                 text = ratioText,

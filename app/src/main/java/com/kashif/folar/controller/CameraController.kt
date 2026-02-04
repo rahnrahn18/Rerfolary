@@ -154,8 +154,7 @@ class CameraController(
 
     private fun FolarAspectRatio.toCameraXAspectRatioStrategy(): AspectRatioStrategy = when (this) {
         FolarAspectRatio.RATIO_16_9, FolarAspectRatio.RATIO_9_16 -> AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
-        FolarAspectRatio.RATIO_4_3 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
-        FolarAspectRatio.RATIO_1_1 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY // closest available
+        FolarAspectRatio.RATIO_4_3, FolarAspectRatio.RATIO_3_4, FolarAspectRatio.RATIO_1_1, FolarAspectRatio.RATIO_4_5 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
     }
     
     /**
