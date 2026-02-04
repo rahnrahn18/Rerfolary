@@ -23,7 +23,7 @@ android {
         ndkVersion = "28.2.13676358"
         externalNativeBuild {
             cmake {
-                cppFlags("-std=c++17")
+                cppFlags("-std=c++17 -march=armv8.2-a+fp16")
                 arguments("-DANDROID_STL=c++_shared")
             }
         }

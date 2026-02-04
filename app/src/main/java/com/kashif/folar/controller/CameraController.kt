@@ -21,6 +21,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.kashif.folar.enums.*
+import com.kashif.folar.enums.AspectRatio as FolarAspectRatio
 import com.kashif.folar.plugins.CameraPlugin
 import com.kashif.folar.result.ImageCaptureResult
 import com.kashif.folar.utils.InvalidConfigurationException
@@ -49,7 +50,7 @@ class CameraController(
     internal var directory: Directory,
     internal var cameraDeviceType: CameraDeviceType,
     internal var returnFilePath: Boolean,
-    internal var aspectRatio: AspectRatio,
+    internal var aspectRatio: FolarAspectRatio,
     internal var plugins: MutableList<CameraPlugin>,
     internal var targetResolution: Pair<Int, Int>? = null
 ) {
@@ -151,10 +152,10 @@ class CameraController(
         }
     }
 
-    private fun AspectRatio.toCameraXAspectRatioStrategy(): AspectRatioStrategy = when (this) {
-        AspectRatio.RATIO_16_9, AspectRatio.RATIO_9_16 -> AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
-        AspectRatio.RATIO_4_3 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
-        AspectRatio.RATIO_1_1 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY // closest available
+    private fun FolarAspectRatio.toCameraXAspectRatioStrategy(): AspectRatioStrategy = when (this) {
+        FolarAspectRatio.RATIO_16_9, FolarAspectRatio.RATIO_9_16 -> AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
+        FolarAspectRatio.RATIO_4_3 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
+        FolarAspectRatio.RATIO_1_1 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY // closest available
     }
     
     /**

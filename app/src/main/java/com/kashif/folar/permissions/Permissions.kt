@@ -12,6 +12,7 @@ import androidx.core.content.ContextCompat
 interface Permissions {
     fun hasCameraPermission(): Boolean
     fun hasStoragePermission(): Boolean
+    fun hasAudioPermission(): Boolean
     @Composable
     fun RequestCameraPermission(onGranted: () -> Unit, onDenied: () -> Unit)
     @Composable
@@ -35,6 +36,10 @@ fun providePermissions(): Permissions {
             override fun hasStoragePermission(): Boolean =
                 Build.VERSION.SDK_INT >= 32 || 
                 ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) == 
+                PackageManager.PERMISSION_GRANTED
+
+            override fun hasAudioPermission(): Boolean =
+                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
 
             @Composable
