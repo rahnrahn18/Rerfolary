@@ -92,40 +92,42 @@ import com.kashif.imagesaverplugin.ImageSaverPlugin
 import com.kashif.imagesaverplugin.rememberImageSaverPlugin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.company.app.theme.AppTheme
+import com.kashif.folar.company.app.theme.AppTheme
 import java.util.Locale
 
 @Composable
 fun LegacyAppContent(
     imageSaverPlugin: ImageSaverPlugin,
     onToggleApi: () -> Unit = {}
-) = AppTheme {
-    val permissions: Permissions = providePermissions()
+) {
+    AppTheme {
+        val permissions: Permissions = providePermissions()
 
-    val snackbarHostState = remember { SnackbarHostState() }
+        val snackbarHostState = remember { SnackbarHostState() }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        modifier = Modifier.windowInsetsPadding(WindowInsets.systemBars)
-    ) {
-        val cameraPermissionState = remember { mutableStateOf(permissions.hasCameraPermission()) }
-        val storagePermissionState = remember { mutableStateOf(permissions.hasStoragePermission()) }
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            modifier = Modifier.windowInsetsPadding(WindowInsets.systemBars)
+        ) {
+            val cameraPermissionState = remember { mutableStateOf(permissions.hasCameraPermission()) }
+            val storagePermissionState = remember { mutableStateOf(permissions.hasStoragePermission()) }
 
-        val cameraController = remember { mutableStateOf<CameraController?>(null) }
+            val cameraController = remember { mutableStateOf<CameraController?>(null) }
 
-        PermissionsHandler(
-            permissions = permissions,
-            cameraPermissionState = cameraPermissionState,
-            storagePermissionState = storagePermissionState
-        )
-
-
-        if (cameraPermissionState.value && storagePermissionState.value) {
-            CameraContent(
-                cameraController = cameraController,
-                imageSaverPlugin = imageSaverPlugin,
-                onToggleApi = onToggleApi
+            PermissionsHandler(
+                permissions = permissions,
+                cameraPermissionState = cameraPermissionState,
+                storagePermissionState = storagePermissionState
             )
+
+
+            if (cameraPermissionState.value && storagePermissionState.value) {
+                CameraContent(
+                    cameraController = cameraController,
+                    imageSaverPlugin = imageSaverPlugin,
+                    onToggleApi = onToggleApi
+                )
+            }
         }
     }
 }
@@ -1101,4 +1103,3 @@ private suspend fun handleImageCapture(
         }
     }
 }
-
