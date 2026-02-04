@@ -2,6 +2,10 @@
 #include <string>
 #include <vector>
 #include <android/log.h>
+
+// Disable FP16 optimization in OpenCV headers to avoid NDK NEON issues
+#define CV_FP16 0
+
 #include <opencv2/opencv.hpp>
 #include <opencv2/video.hpp>
 #include <opencv2/imgproc.hpp>
