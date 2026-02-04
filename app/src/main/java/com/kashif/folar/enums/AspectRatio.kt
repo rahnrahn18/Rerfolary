@@ -9,8 +9,10 @@ package com.kashif.folar.enums
  * - RATIO_1_1: Square 1:1 aspect ratio
  */
 enum class AspectRatio {
-    RATIO_4_3,
-    RATIO_16_9,
-    RATIO_9_16,
-    RATIO_1_1
+    RATIO_4_3,  // Standard Landscape 4:3
+    RATIO_3_4,  // Standard Portrait 3:4
+    RATIO_16_9, // Standard Landscape 16:9
+    RATIO_9_16, // Standard Portrait 9:16 (Stories)
+    RATIO_1_1,  // Square 1:1
+    RATIO_4_5   // Instagram Portrait 4:5
 }

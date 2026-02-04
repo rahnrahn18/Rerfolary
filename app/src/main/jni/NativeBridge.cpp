@@ -13,6 +13,7 @@
 #include <opencv2/video.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
+// HAPUS: #include <opencv2/photo.hpp> sudah dibuang
 
 #define LOG_TAG "NativeBridge"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -65,9 +66,6 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
 
     // Prepare Output Writer
     // Use MJPG for simplicity and compatibility on Android via OpenCV
-    // Alternatively, use original codec logic if complex, but MJPG is safe for .avi or .mp4 container
-    // However, Android's MediaCodec is not directly accessible via standard OpenCV VideoWriter backend easily without ffmpeg
-    // We try 'avc1' (H.264) which is standard for MP4 on Android
     int fourcc = VideoWriter::fourcc('a', 'v', 'c', '1');
     VideoWriter writer(outputPath, fourcc, fps, Size(width, height));
 
@@ -96,13 +94,9 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     cvtColor(prev, prev_gray, COLOR_BGR2GRAY);
 
     vector<TransformParam> transforms;
-    // First frame has no transform relative to previous, but we need n_frames-1 transforms
+    // First frame has no transform relative to previous
 
     Mat curr, curr_gray;
-
-    // Iterate through frames to calculate motion
-    // To save memory on mobile, we process carefully
-    // But for 2-pass, we must store transforms. Vector of structs is small.
 
     for (int i = 0; i < n_frames - 1; i++) {
         bool success = cap.read(curr);
@@ -135,7 +129,6 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
                  transforms.push_back({0, 0, 0});
             } else {
                 // Estimate Affine Transform (2D)
-                // estimateAffinePartial2D is robust (RANSAC) and limits to translation + rotation + scale (we want rigid/similarity)
                 Mat T = estimateAffinePartial2D(p_prev, p_curr);
 
                 if (T.empty()) {
@@ -158,7 +151,7 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     // Step 2: Compute Trajectory
     vector<Trajectory> trajectory;
     vector<Trajectory> smoothed_trajectory;
-    vector<TransformParam> new_transforms;
+    // vector<TransformParam> new_transforms; // unused variable removed
 
     double a = 0;
     double x = 0;
@@ -194,12 +187,6 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         smoothed_trajectory.push_back({sum_x/count, sum_y/count, sum_a/count});
     }
 
-    // Calculate new transforms
-    // transform_new = transform + (smoothed - original)
-    // Actually we need the differential transform to warp frame i
-    // T_new[i] = (Trajectory_smooth[i] - Trajectory[i])
-    // So we warp frame i by T_new[i] to align it to the smoothed path.
-
     // Step 3: Apply Warping
     cap.set(CAP_PROP_POS_FRAMES, 0); // Reset to start
 
@@ -207,7 +194,6 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     Mat frame, frame_stabilized, frame_cropped;
 
     // Vertical crop ratio to hide borders (zoom)
-    // A simple zoom of 4% (1.04) usually hides rotation borders
     double scale = 1.05;
     Mat T_scale = getRotationMatrix2D(Point2f(width/2, height/2), 0, scale);
 
@@ -219,11 +205,6 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         double diff_x = smoothed_trajectory[i].x - trajectory[i].x;
         double diff_y = smoothed_trajectory[i].y - trajectory[i].y;
         double diff_a = smoothed_trajectory[i].a - trajectory[i].a;
-
-        // Construct Affine Matrix
-        // Rotation + Translation
-        // [ cos(da) -sin(da) dx ]
-        // [ sin(da)  cos(da) dy ]
 
         T.at<double>(0,0) = cos(diff_a);
         T.at<double>(0,1) = -sin(diff_a);
@@ -251,5 +232,7 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     env->ReleaseStringUTFChars(jInputPath, inputPath);
     env->ReleaseStringUTFChars(jOutputPath, outputPath);
 }
+
+// FUNGSI processImage TELAH DIHAPUS SEPENUHNYA
 
 }

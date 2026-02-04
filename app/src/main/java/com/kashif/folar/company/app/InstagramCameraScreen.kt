@@ -124,8 +124,10 @@ fun InstagramCameraScreen(
     var currentMode by remember { mutableStateOf(CameraMode.PHOTO) }
     var isRecording by remember { mutableStateOf(false) }
     var isStabilizing by remember { mutableStateOf(false) }
+    // Removed isProcessingPhoto (no longer blocking)
     var lastCapturedImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var flashMode by remember { mutableStateOf(FlashMode.OFF) }
+    var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_3_4) } // Default to Portrait 3:4
 
     // Plugin States
     var isQRScanningEnabled by remember { mutableStateOf(false) }
@@ -194,6 +196,47 @@ fun InstagramCameraScreen(
         // 1. Fullscreen Preview Overlay (already handled by FolarScreen under this, but we put UI on top)
         // Note: FolarScreen renders the preview. We are just the UI overlay.
 
+        // 1.5 Letterboxing Masks
+        val ratioValue = when(selectedRatio) {
+            AspectRatio.RATIO_4_3 -> 3f/4f
+            AspectRatio.RATIO_3_4 -> 3f/4f // Portrait 3:4 is physically same ratio value (0.75) for math
+            AspectRatio.RATIO_16_9 -> 9f/16f
+            AspectRatio.RATIO_1_1 -> 1f
+            AspectRatio.RATIO_9_16 -> 9f/16f
+            AspectRatio.RATIO_4_5 -> 4f/5f
+        }
+
+        // Draw black bars (Letterboxing)
+        // We show bars for everything except 9:16 which is "Full" for this context
+        if (selectedRatio != AspectRatio.RATIO_9_16) {
+             Canvas(modifier = Modifier.fillMaxSize()) {
+                 val screenW = size.width
+                 val screenH = size.height
+
+                 // Calculate target height based on width (assuming width matches screen)
+                 // For 1:1, H = W. For 4:3, H = W / (3/4) = W * 1.33
+                 val targetH = screenW / ratioValue
+
+                 if (targetH < screenH) {
+                     val barHeight = (screenH - targetH) / 2
+
+                     // Top Bar
+                     drawRect(
+                         color = Color.Black,
+                         topLeft = Offset(0f, 0f),
+                         size = Size(screenW, barHeight)
+                     )
+
+                     // Bottom Bar
+                     drawRect(
+                         color = Color.Black,
+                         topLeft = Offset(0f, screenH - barHeight),
+                         size = Size(screenW, barHeight)
+                     )
+                 }
+             }
+        }
+
         // 2. Top Controls
         TopControlBar(
             modifier = Modifier.align(Alignment.TopCenter),
@@ -201,6 +244,29 @@ fun InstagramCameraScreen(
             onFlashToggle = {
                 cameraController.toggleFlashMode()
                 flashMode = cameraController.getFlashMode() ?: FlashMode.OFF
+            },
+            selectedRatio = selectedRatio,
+            onRatioToggle = {
+                // Cycle: 1:1 -> 4:5 -> 3:4 -> 9:16
+                val newRatio = when(selectedRatio) {
+                    AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_5
+                    AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_3_4
+                    AspectRatio.RATIO_3_4 -> AspectRatio.RATIO_9_16
+                    AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_1_1
+                    else -> AspectRatio.RATIO_1_1 // Default fallback for old states
+                }
+
+                selectedRatio = newRatio
+
+                // Map to CameraX supported ratios (4:3 or 16:9)
+                val cameraXRatio = when(newRatio) {
+                    AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_3
+                    AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_4_3
+                    AspectRatio.RATIO_3_4 -> AspectRatio.RATIO_4_3
+                    AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_16_9
+                    else -> AspectRatio.RATIO_4_3
+                }
+                onAspectRatioChange(cameraXRatio)
             },
             onSettingsClick = { /* Open Bottom Sheet if needed */ },
             onToggleApi = onToggleApi
@@ -275,7 +341,7 @@ fun InstagramCameraScreen(
                             when(currentMode) {
                                 CameraMode.PHOTO -> {
                                     scope.launch {
-                                        handlePhotoCapture(cameraController, imageSaverPlugin) { bmp ->
+                                        handlePhotoCapture(cameraController, imageSaverPlugin, selectedRatio) { bmp ->
                                             lastCapturedImage = bmp
                                         }
                                     }
@@ -346,7 +412,7 @@ fun InstagramCameraScreen(
             }
         }
 
-        // 5. Processing Overlay
+        // 5. Processing Overlay (Only for Video Stabilization now)
         if (isStabilizing) {
             Dialog(onDismissRequest = {}) {
                 Surface(
@@ -384,7 +450,9 @@ fun InstagramCameraScreen(
 fun TopControlBar(
     modifier: Modifier = Modifier,
     flashMode: FlashMode,
+    selectedRatio: AspectRatio,
     onFlashToggle: () -> Unit,
+    onRatioToggle: () -> Unit,
     onSettingsClick: () -> Unit,
     onToggleApi: () -> Unit
 ) {
@@ -399,16 +467,38 @@ fun TopControlBar(
             Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
         }
 
-        IconButton(onClick = onFlashToggle) {
-            Icon(
-                imageVector = when(flashMode) {
-                    FlashMode.ON -> Lucide.Flashlight
-                    FlashMode.OFF -> Lucide.FlashlightOff
-                    FlashMode.AUTO -> Lucide.Flashlight
-                },
-                contentDescription = "Flash",
-                tint = Color.White
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            // Aspect Ratio Button
+            val ratioText = when(selectedRatio) {
+                AspectRatio.RATIO_1_1 -> "1:1"
+                AspectRatio.RATIO_4_5 -> "4:5"
+                AspectRatio.RATIO_3_4 -> "3:4"
+                AspectRatio.RATIO_9_16 -> "9:16"
+                // Handle legacy enums just in case to avoid crash, map to nearest visual
+                AspectRatio.RATIO_4_3 -> "3:4"
+                AspectRatio.RATIO_16_9 -> "9:16"
+            }
+            Text(
+                text = ratioText,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .border(1.dp, Color.White, CircleShape)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .clickable { onRatioToggle() }
             )
+
+            IconButton(onClick = onFlashToggle) {
+                Icon(
+                    imageVector = when(flashMode) {
+                        FlashMode.ON -> Lucide.Flashlight
+                        FlashMode.OFF -> Lucide.FlashlightOff
+                        FlashMode.AUTO -> Lucide.Flashlight
+                    },
+                    contentDescription = "Flash",
+                    tint = Color.White
+                )
+            }
         }
 
         IconButton(onClick = onToggleApi) {
@@ -583,6 +673,7 @@ fun PluginOutputs(
 private suspend fun handlePhotoCapture(
     cameraController: CameraController,
     imageSaverPlugin: ImageSaverPlugin,
+    aspectRatio: AspectRatio,
     onImageCaptured: (ImageBitmap) -> Unit
 ) {
     when (val result = cameraController.takePictureToFile()) {
@@ -590,14 +681,80 @@ private suspend fun handlePhotoCapture(
             println("Image captured: ${result.filePath}")
             try {
                 withContext(Dispatchers.IO) {
-                    // Simple decode for preview
-                    val options = BitmapFactory.Options().apply { inSampleSize = 4 }
-                    val bitmap = BitmapFactory.decodeFile(result.filePath, options)
+                    // 1. Native Processing REMOVED for stability
+                    // We rely purely on Kotlin for Aspect Ratio cropping.
+
+                    // 2. Kotlin Cropping (If needed)
+                    // CameraX outputs 4:3 or 16:9. We need to crop to target ratio.
+                    try {
+                        val file = File(result.filePath)
+                        // Only crop if ratio is not native (assume native is 4:3 or 16:9)
+                        // Simplified: Always check dimensions and crop center
+
+                        // Decode bounds only first
+                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(file.absolutePath, options)
+                        val w = options.outWidth
+                        val h = options.outHeight
+
+                        if (w > 0 && h > 0) {
+                            val targetRatio = when(aspectRatio) {
+                                AspectRatio.RATIO_1_1 -> 1.0f
+                                AspectRatio.RATIO_4_5 -> 0.8f
+                                AspectRatio.RATIO_3_4, AspectRatio.RATIO_4_3 -> 0.75f
+                                AspectRatio.RATIO_9_16, AspectRatio.RATIO_16_9 -> 0.5625f
+                            }
+
+                            val currentRatio = w.toFloat() / h.toFloat()
+
+                            // Crop only if significant difference
+                            if (Math.abs(currentRatio - targetRatio) > 0.01) {
+                                val targetW: Int
+                                val targetH: Int
+
+                                if (currentRatio > targetRatio) {
+                                    // Too wide, crop width
+                                    targetH = h
+                                    targetW = (h * targetRatio).toInt()
+                                } else {
+                                    // Too tall, crop height
+                                    targetW = w
+                                    targetH = (w / targetRatio).toInt()
+                                }
+
+                                val cx = (w - targetW) / 2
+                                val cy = (h - targetH) / 2
+
+                                // Load only cropped region using BitmapRegionDecoder (Low Memory)
+                                val decoder = android.graphics.BitmapRegionDecoder.newInstance(file.absolutePath, false)
+                                val region = android.graphics.Rect(cx, cy, cx + targetW, cy + targetH)
+                                val croppedBitmap = decoder.decodeRegion(region, BitmapFactory.Options())
+
+                                // Overwrite file
+                                file.outputStream().use { out ->
+                                    croppedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, out)
+                                }
+                                croppedBitmap.recycle()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
+                    // Safe decode for preview
+                    val previewOptions = BitmapFactory.Options().apply { inSampleSize = 8 }
+                    val bitmap = BitmapFactory.decodeFile(result.filePath, previewOptions)
                     if (bitmap != null) {
                          withContext(Dispatchers.Main) {
                              onImageCaptured(bitmap.asImageBitmap())
                          }
                     }
+
+                    // Notify gallery
+                    try {
+                        val mediaScanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
+                        mediaScanIntent.data = Uri.fromFile(File(result.filePath))
+                    } catch (e: Exception) {}
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

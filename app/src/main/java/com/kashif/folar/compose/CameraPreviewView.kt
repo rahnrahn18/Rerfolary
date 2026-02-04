@@ -26,7 +26,12 @@ fun CameraPreviewView(
             // Camera is already bound and started by the state holder
         }
         onDispose {
-            // Cleanup is handled by the state holder
+            // Explicitly unbind to prevent LayoutNode detached crash during rapid recomposition
+            try {
+                controller.stopSession()
+            } catch (e: Exception) {
+                // Ignore errors during cleanup
+            }
         }
     }
     

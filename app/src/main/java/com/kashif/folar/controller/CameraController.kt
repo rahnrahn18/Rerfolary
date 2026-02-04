@@ -154,8 +154,7 @@ class CameraController(
 
     private fun FolarAspectRatio.toCameraXAspectRatioStrategy(): AspectRatioStrategy = when (this) {
         FolarAspectRatio.RATIO_16_9, FolarAspectRatio.RATIO_9_16 -> AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
-        FolarAspectRatio.RATIO_4_3 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
-        FolarAspectRatio.RATIO_1_1 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY // closest available
+        FolarAspectRatio.RATIO_4_3, FolarAspectRatio.RATIO_3_4, FolarAspectRatio.RATIO_1_1, FolarAspectRatio.RATIO_4_5 -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
     }
     
     /**
@@ -236,21 +235,9 @@ class CameraController(
     private fun configureCaptureUseCase(resolutionSelector: ResolutionSelector) {
         imageCapture = ImageCapture.Builder()
             .setFlashMode(flashMode.toCameraXFlashMode())
-            .setCaptureMode(
-                when (qualityPriority) {
-                    QualityPrioritization.QUALITY -> ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
-                    QualityPrioritization.SPEED -> ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG
-                    QualityPrioritization.BALANCED -> ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
-                    QualityPrioritization.NONE -> {
-                        if (memoryManager.isUnderMemoryPressure()) {
-                            ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
-                        } else {
-                            ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
-                        }
-                    }
-                }
-            )
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY) // Enforce Max Quality as requested
             .setResolutionSelector(resolutionSelector)
+            .setJpegQuality(100) // Ensure 100% Quality
             .build()
     }
 
