@@ -24,6 +24,7 @@ import com.kashif.folar.state.FolarState
 import com.kashif.folar.state.FolarStateHolder
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterIsInstance
@@ -84,10 +85,12 @@ class QRScannerPlugin(
             try {
                 startScanning(controller = controller) { result ->
                     if (isScanning.value) {
-                        coroutineScope.launch {
+                        // Ensure state emission happens on Main dispatcher to sync with UI recomposition
+                        // This prevents potential frame-sync issues where background thread updates
+                        // state right as UI is measuring/laying out.
+                        coroutineScope.launch(Dispatchers.Main) {
                             qrCodeFlow.emit(result)
-                            // Legacy event might need updating or we just emit text for now if FolarEvent is sealed elsewhere
-                             stateHolder?.emitEvent(FolarEvent.QRCodeScanned(result.text))
+                            stateHolder?.emitEvent(FolarEvent.QRCodeScanned(result.text))
                         }
                     }
                 }

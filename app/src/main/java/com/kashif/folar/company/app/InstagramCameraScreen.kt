@@ -1,7 +1,10 @@
 package com.kashif.folar.company.app
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image as ComposeImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -272,7 +275,7 @@ fun InstagramCameraScreen(
             onToggleApi = onToggleApi
         )
 
-        // 3. Plugin Outputs (Middle Overlay)
+        // 3. Plugin Outputs (Middle Overlay) - Using AnimatedVisibility instead of if/else to avoid node destruction during measure
         PluginOutputs(
             modifier = Modifier.align(Alignment.Center),
             currentMode = currentMode,
@@ -584,88 +587,103 @@ fun PluginOutputs(
 ) {
     val context = LocalContext.current
 
+    // Use Crossfade or explicit box with conditional visibility to prevent "LayoutNode detached" issues.
+    // Instead of completely removing the nodes from the tree, we keep them but handle visibility.
+    // Or simpler: Wrap in AnimatedVisibility which handles measurement transitions safely.
+
     // QR Code Overlay (Tracking + Content)
-    if (detectedQR != null && (currentMode == CameraMode.PHOTO || currentMode == CameraMode.VIDEO)) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Draw tracking lines
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                 val canvasWidth = size.width
-                 val canvasHeight = size.height
+    val isQRVisible = (detectedQR != null && (currentMode == CameraMode.PHOTO || currentMode == CameraMode.VIDEO))
 
-                 // If we have 4 points, draw a path connecting them
-                 if (detectedQR.points.size >= 3) {
-                     val path = Path().apply {
-                         // Points are normalized 0..1, need to scale to canvas
-                         // Note: Coordinate mapping from CameraX Analysis to Preview View is complex
-                         // and depends on scaling type (Fill vs Fit).
-                         // Assuming FILL_CENTER logic roughly for now:
+    AnimatedVisibility(
+        visible = isQRVisible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier.fillMaxSize()
+    ) {
+        if (detectedQR != null) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Draw tracking lines
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                     val canvasWidth = size.width
+                     val canvasHeight = size.height
 
-                         val p0 = detectedQR.points[0]
-                         moveTo(p0.first * canvasWidth, p0.second * canvasHeight)
+                     if (detectedQR.points.size >= 3) {
+                         val path = Path().apply {
+                             val p0 = detectedQR.points[0]
+                             moveTo(p0.first * canvasWidth, p0.second * canvasHeight)
 
-                         for (i in 1 until detectedQR.points.size) {
-                             val p = detectedQR.points[i]
-                             lineTo(p.first * canvasWidth, p.second * canvasHeight)
+                             for (i in 1 until detectedQR.points.size) {
+                                 val p = detectedQR.points[i]
+                                 lineTo(p.first * canvasWidth, p.second * canvasHeight)
+                             }
+                             close()
                          }
-                         close()
-                     }
 
-                     drawPath(
-                         path = path,
-                         color = Color.Yellow,
-                         style = Stroke(width = 8f)
-                     )
-
-                     // Draw corner markers for extra emphasis
-                     for (point in detectedQR.points) {
-                         drawCircle(
+                         drawPath(
+                             path = path,
                              color = Color.Yellow,
-                             radius = 16f,
-                             center = Offset(point.first * canvasWidth, point.second * canvasHeight)
+                             style = Stroke(width = 8f)
                          )
-                     }
-                 }
-            }
 
-            // Clickable Content Overlay
-            Surface(
-                modifier = modifier
-                    .padding(16.dp)
-                    .clickable {
-                        // Try to launch intent
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(detectedQR.text))
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            // If not a URL, maybe search it?
+                         for (point in detectedQR.points) {
+                             drawCircle(
+                                 color = Color.Yellow,
+                                 radius = 16f,
+                                 center = Offset(point.first * canvasWidth, point.second * canvasHeight)
+                             )
+                         }
+                     }
+                }
+
+                // Clickable Content Overlay
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(16.dp)
+                        .clickable {
                             try {
-                                val searchIntent = Intent(Intent.ACTION_WEB_SEARCH)
-                                searchIntent.putExtra(android.app.SearchManager.QUERY, detectedQR.text)
-                                context.startActivity(searchIntent)
-                            } catch (e2: Exception) {}
-                        }
-                    },
-                color = Color.Yellow.copy(alpha = 0.9f),
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(2.dp, Color.Black)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("QR Detected 🔗", fontWeight = FontWeight.Bold, color = Color.Black)
-                    Text(detectedQR.text, color = Color.Blue, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                    Text("Tap to open", style = MaterialTheme.typography.labelSmall, color = Color.Black.copy(alpha = 0.7f))
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(detectedQR.text))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                try {
+                                    val searchIntent = Intent(Intent.ACTION_WEB_SEARCH)
+                                    searchIntent.putExtra(android.app.SearchManager.QUERY, detectedQR.text)
+                                    context.startActivity(searchIntent)
+                                } catch (e2: Exception) {}
+                            }
+                        },
+                    color = Color.Yellow.copy(alpha = 0.9f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, Color.Black)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("QR Detected 🔗", fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text(detectedQR.text, color = Color.Blue, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text("Tap to open", style = MaterialTheme.typography.labelSmall, color = Color.Black.copy(alpha = 0.7f))
+                    }
                 }
             }
         }
     }
 
-    if (currentMode == CameraMode.TEXT && recognizedText != null) {
-        Surface(modifier = modifier.padding(16.dp), color = Color.Black.copy(alpha = 0.7f), shape = RoundedCornerShape(8.dp)) {
-             Text(
-                 text = recognizedText,
-                 color = Color.White,
-                 modifier = Modifier.padding(16.dp),
-                 maxLines = 5
-             )
+    // Text OCR Overlay
+    val isTextVisible = (currentMode == CameraMode.TEXT && recognizedText != null)
+
+    AnimatedVisibility(
+        visible = isTextVisible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier
+    ) {
+        if (recognizedText != null) {
+            Surface(modifier = Modifier.padding(16.dp), color = Color.Black.copy(alpha = 0.7f), shape = RoundedCornerShape(8.dp)) {
+                 Text(
+                     text = recognizedText,
+                     color = Color.White,
+                     modifier = Modifier.padding(16.dp),
+                     maxLines = 5
+                 )
+            }
         }
     }
 }
