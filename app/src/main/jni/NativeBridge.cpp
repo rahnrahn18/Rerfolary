@@ -13,6 +13,7 @@
 #include <opencv2/video.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
+#include <opencv2/photo.hpp>
 
 #define LOG_TAG "NativeBridge"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -250,6 +251,64 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
 
     env->ReleaseStringUTFChars(jInputPath, inputPath);
     env->ReleaseStringUTFChars(jOutputPath, outputPath);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kashif_folar_utils_NativeBridge_processImage(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring jPath) {
+
+    const char* path = env->GetStringUTFChars(jPath, 0);
+    LOGI("Starting Super Detail processing for: %s", path);
+
+    Mat img = imread(path);
+    if (img.empty()) {
+        LOGE("Failed to load image: %s", path);
+        env->ReleaseStringUTFChars(jPath, path);
+        return;
+    }
+
+    Mat step1, step2, step3;
+
+    // 1. Noise Killer (Non-Local Means Denoising)
+    // "Reaksi User harus: Gila, fotonya bersih banget padahal malam!"
+    // h=20 (requested), hColor=20, templateWindowSize=7, searchWindowSize=21
+    LOGI("Step 1: Noise Killer (h=20)");
+    fastNlMeansDenoisingColored(img, step1, 20, 20, 7, 21);
+
+    // 2. Detail Booster (Detail Enhance)
+    // "Meningkatkan kontras mikro... Jangan set terlalu tinggi agar tidak terlihat seperti kartun."
+    LOGI("Step 2: Detail Booster");
+    // detailEnhance defaults: sigma_s=10, sigma_r=0.15. We'll stick to defaults or slightly tweak if needed.
+    // The user said "Jangan set terlalu tinggi". Defaults are usually safe.
+    detailEnhance(step1, step2, 10, 0.15f);
+
+    // 3. Smart Lighting (CLAHE on Luminance)
+    // "Ini adalah HDR versi ringan... Dia akan menerangkan bagian gelap tanpa membuat bagian terang over-exposed."
+    LOGI("Step 3: Smart Lighting (CLAHE)");
+    Mat lab;
+    cvtColor(step2, lab, COLOR_BGR2Lab);
+
+    vector<Mat> lab_planes;
+    split(lab, lab_planes);
+
+    Ptr<CLAHE> clahe = createCLAHE();
+    clahe->setClipLimit(2.0); // Standard "light" limit
+    clahe->setTilesGridSize(Size(8, 8)); // Standard grid
+    clahe->apply(lab_planes[0], lab_planes[0]); // Apply to L channel
+
+    merge(lab_planes, lab);
+    cvtColor(lab, step3, COLOR_Lab2BGR);
+
+    // Save Result (Overwrite)
+    if (imwrite(path, step3)) {
+        LOGI("Successfully saved processed image");
+    } else {
+        LOGE("Failed to save processed image");
+    }
+
+    env->ReleaseStringUTFChars(jPath, path);
 }
 
 }
