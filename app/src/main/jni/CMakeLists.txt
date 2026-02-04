@@ -6,9 +6,6 @@ project("folar-native")
 # Use C++ 17
 set(CMAKE_CXX_STANDARD 17)
 
-# Enable NEON FP16 support for NDK 28 compatibility
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.2-a+fp16")
-
 # Set path to OpenCV directory
 set(OPENCV_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/opencv)
 
