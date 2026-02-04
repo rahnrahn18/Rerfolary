@@ -668,6 +668,10 @@ class CameraController(
             System.gc()
         }
         cameraLens = if (cameraLens == CameraLens.BACK) CameraLens.FRONT else CameraLens.BACK
+
+        // Clean unbind before rebinding to avoid Surface/OpenGL conflicts
+        cameraProvider?.unbindAll()
+
         previewView?.let { bindCamera(it) }
     }
     

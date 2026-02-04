@@ -1,0 +1,65 @@
+{
+  "allFiles": [
+    {
+      "file": "/storage/emulated/0/AndroidIDEProjects/FolarWorkspace/app/src/main/jni/NativeBridge.cpp",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 8444,
+          "line": 254
+        },
+        "start": {
+          "column": 1,
+          "index": 8444,
+          "line": 254
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/AndroidIDEProjects/FolarWorkspace/app/src/main/java/com/kashif/folar/qrscannerplugin/QRScannerPlugin.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 8545,
+          "line": 232
+        },
+        "start": {
+          "column": 1,
+          "index": 8545,
+          "line": 232
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/AndroidIDEProjects/FolarWorkspace/app/src/main/java/com/kashif/folar/company/app/App.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 10361,
+          "line": 273
+        },
+        "start": {
+          "column": 1,
+          "index": 10361,
+          "line": 273
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/AndroidIDEProjects/FolarWorkspace/app/src/main/java/com/kashif/folar/company/app/InstagramCameraScreen.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 25801,
+          "line": 607
+        },
+        "start": {
+          "column": 1,
+          "index": 25801,
+          "line": 607
+        }
+      }
+    }
+  ],
+  "selectedFile": "/storage/emulated/0/AndroidIDEProjects/FolarWorkspace/app/src/main/java/com/kashif/folar/company/app/InstagramCameraScreen.kt"
+}

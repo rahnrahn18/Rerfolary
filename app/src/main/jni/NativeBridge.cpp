@@ -16,6 +16,7 @@
 
 #define LOG_TAG "NativeBridge"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 using namespace std;
@@ -66,20 +67,26 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     // Use MJPG for simplicity and compatibility on Android via OpenCV
     // Alternatively, use original codec logic if complex, but MJPG is safe for .avi or .mp4 container
     // However, Android's MediaCodec is not directly accessible via standard OpenCV VideoWriter backend easily without ffmpeg
-    // We try 'mp4v' for .mp4
-    int fourcc = VideoWriter::fourcc('m', 'p', '4', 'v');
+    // We try 'avc1' (H.264) which is standard for MP4 on Android
+    int fourcc = VideoWriter::fourcc('a', 'v', 'c', '1');
     VideoWriter writer(outputPath, fourcc, fps, Size(width, height));
 
     if (!writer.isOpened()) {
-        LOGE("Failed to open output video writer");
-        // Try fallback to MJPG
-        fourcc = VideoWriter::fourcc('M', 'J', 'P', 'G');
+        LOGW("Failed to open output video writer with avc1, trying mp4v");
+        fourcc = VideoWriter::fourcc('m', 'p', '4', 'v');
         writer.open(outputPath, fourcc, fps, Size(width, height));
+
         if (!writer.isOpened()) {
-            LOGE("Failed to open output video writer with fallback MJPG");
-            env->ReleaseStringUTFChars(jInputPath, inputPath);
-            env->ReleaseStringUTFChars(jOutputPath, outputPath);
-            return;
+            LOGW("Failed to open output video writer with mp4v, trying MJPG");
+            // Try fallback to MJPG
+            fourcc = VideoWriter::fourcc('M', 'J', 'P', 'G');
+            writer.open(outputPath, fourcc, fps, Size(width, height));
+            if (!writer.isOpened()) {
+                LOGE("Failed to open output video writer with fallback MJPG");
+                env->ReleaseStringUTFChars(jInputPath, inputPath);
+                env->ReleaseStringUTFChars(jOutputPath, outputPath);
+                return;
+            }
         }
     }
 
