@@ -148,14 +148,14 @@ private fun CameraContent(
     var configVersion by remember { mutableStateOf(0) }
 
     // Plugin output states
-    var detectedQR by remember { mutableStateOf<String?>(null) }
+    var detectedQR by remember { mutableStateOf<com.kashif.qrscannerplugin.QRResult?>(null) }
     var recognizedText by remember { mutableStateOf<String?>(null) }
 
     // Collect plugin outputs
     LaunchedEffect(qrScannerPlugin) {
         qrScannerPlugin.getQrCodeFlow().collect { qr ->
             detectedQR = qr
-            println("QR Code detected: $qr")
+            println("QR Code detected: ${qr.text}")
         }
     }
 
@@ -241,7 +241,7 @@ private fun CameraContent(
             imageSaverPlugin = imageSaverPlugin,
             qrScannerPlugin = qrScannerPlugin,
             ocrPlugin = ocrPlugin,
-            detectedQR = detectedQR,
+            detectedQR = detectedQR, // Now type QRResult?
             recognizedText = recognizedText,
             aspectRatio = aspectRatio,
             resolution = resolution,

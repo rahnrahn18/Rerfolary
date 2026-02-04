@@ -9,6 +9,7 @@ import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.ResultPoint
 import com.google.zxing.common.HybridBinarizer
 import androidx.camera.core.ExperimentalGetImage
 import androidx.compose.runtime.Composable
@@ -30,13 +31,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import java.util.EnumMap
 
+data class QRResult(
+    val text: String,
+    val points: List<Pair<Float, Float>> // Normalized 0..1 coordinates
+)
+
 @Stable
 class QRScannerPlugin(
     private val coroutineScope: CoroutineScope
 ) : CameraPlugin, FolarPlugin {
     private var cameraController: CameraController? = null
     private var stateHolder: FolarStateHolder? = null
-    private val qrCodeFlow = MutableSharedFlow<String>()
+    private val qrCodeFlow = MutableSharedFlow<QRResult>() // Changed to QRResult
     private var isScanning = atomic(false)
     private var collectorJob: Job? = null
 
@@ -76,11 +82,12 @@ class QRScannerPlugin(
         cameraController?.let { controller ->
             isScanning.value = true
             try {
-                startScanning(controller = controller) { qrCode ->
+                startScanning(controller = controller) { result ->
                     if (isScanning.value) {
                         coroutineScope.launch {
-                            qrCodeFlow.emit(qrCode)
-                            stateHolder?.emitEvent(FolarEvent.QRCodeScanned(qrCode))
+                            qrCodeFlow.emit(result)
+                            // Legacy event might need updating or we just emit text for now if FolarEvent is sealed elsewhere
+                             stateHolder?.emitEvent(FolarEvent.QRCodeScanned(result.text))
                         }
                     }
                 }
@@ -118,13 +125,13 @@ fun rememberQRScannerPlugin(
 // Android implementation moved here
 fun startScanning(
     controller: CameraController,
-    onQrScanner: (String) -> Unit
+    onQrScanner: (QRResult) -> Unit
 ) {
     Log.d("QRScanner", "Starting QR scanner")
     controller.enableQrCodeScanner(onQrScanner)
 }
 
-fun CameraController.enableQrCodeScanner(onQrScanner: (String) -> Unit) {
+fun CameraController.enableQrCodeScanner(onQrScanner: (QRResult) -> Unit) {
     Log.d("QRScanner", "Enabling QR code scanner")
     try {
         imageAnalyzer = ImageAnalysis.Builder()
@@ -142,7 +149,7 @@ fun CameraController.enableQrCodeScanner(onQrScanner: (String) -> Unit) {
     }
 }
 
-private class QRCodeAnalyzer(private val onQrScanner: (String) -> Unit) : ImageAnalysis.Analyzer {
+private class QRCodeAnalyzer(private val onQrScanner: (QRResult) -> Unit) : ImageAnalysis.Analyzer {
     private val decodeHints = EnumMap<DecodeHintType, Any>(DecodeHintType::class.java).apply {
         put(DecodeHintType.CHARACTER_SET, "UTF-8")
         put(
@@ -202,7 +209,20 @@ private class QRCodeAnalyzer(private val onQrScanner: (String) -> Unit) : ImageA
                 Log.d("QRScanner", "QR Code detected: ${result.text}")
                 lastScannedCode = result.text
                 lastScanTime = currentTime
-                onQrScanner(result.text)
+
+                // Map points to normalized coordinates (0..1)
+                // Note: ImageProxy might be rotated relative to screen.
+                // Assuming portrait orientation for now.
+                // Image is usually 90deg rotated on back camera in portrait.
+                // width/height of imageProxy correspond to the buffer dimensions.
+
+                val points = result.resultPoints?.map { point ->
+                    // Rotate point 90 degrees clockwise if needed or normalized
+                    // Let's just normalize first
+                    Pair(point.x / image.width.toFloat(), point.y / image.height.toFloat())
+                } ?: emptyList()
+
+                onQrScanner(QRResult(result.text, points))
             }
         } catch (e: Exception) {
             // expected

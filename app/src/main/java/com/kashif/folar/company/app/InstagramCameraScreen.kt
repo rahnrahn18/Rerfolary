@@ -77,6 +77,14 @@ import com.kashif.folar.utils.NativeBridge
 import com.kashif.imagesaverplugin.ImageSaverPlugin
 import com.kashif.ocrPlugin.OcrPlugin
 import com.kashif.qrscannerplugin.QRScannerPlugin
+import com.kashif.qrscannerplugin.QRResult
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import android.net.Uri
+import android.content.Intent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -86,7 +94,7 @@ import java.io.File
 enum class CameraMode(val label: String) {
     PHOTO("PHOTO"),
     VIDEO("VIDEO"),
-    SCAN("QR SCAN"),
+    // SCAN mode removed, integrated into Photo/Video
     TEXT("TEXT OCR")
 }
 
@@ -96,7 +104,7 @@ fun InstagramCameraScreen(
     imageSaverPlugin: ImageSaverPlugin,
     qrScannerPlugin: QRScannerPlugin,
     ocrPlugin: OcrPlugin,
-    detectedQR: String?,
+    detectedQR: QRResult?,
     recognizedText: String?,
     aspectRatio: AspectRatio,
     resolution: Pair<Int, Int>?,
@@ -129,7 +137,8 @@ fun InstagramCameraScreen(
     // Logic to handle mode switching side effects
     LaunchedEffect(currentMode, cameraController) {
         // Reset plugin states
-        isQRScanningEnabled = (currentMode == CameraMode.SCAN)
+        // QR Scanning enabled in PHOTO and VIDEO modes
+        isQRScanningEnabled = (currentMode == CameraMode.PHOTO || currentMode == CameraMode.VIDEO)
         isOCREnabled = (currentMode == CameraMode.TEXT)
 
         // Handle Plugin Activation
@@ -481,14 +490,81 @@ fun ShutterButton(
 fun PluginOutputs(
     modifier: Modifier,
     currentMode: CameraMode,
-    detectedQR: String?,
+    detectedQR: QRResult?,
     recognizedText: String?
 ) {
-    if (currentMode == CameraMode.SCAN && detectedQR != null) {
-        Surface(modifier = modifier.padding(16.dp), color = Color.White.copy(alpha = 0.9f), shape = RoundedCornerShape(8.dp)) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("QR Detected:", fontWeight = FontWeight.Bold, color = Color.Black)
-                Text(detectedQR, color = Color.Blue)
+    val context = LocalContext.current
+
+    // QR Code Overlay (Tracking + Content)
+    if (detectedQR != null && (currentMode == CameraMode.PHOTO || currentMode == CameraMode.VIDEO)) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Draw tracking lines
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                 val canvasWidth = size.width
+                 val canvasHeight = size.height
+
+                 // If we have 4 points, draw a path connecting them
+                 if (detectedQR.points.size >= 3) {
+                     val path = Path().apply {
+                         // Points are normalized 0..1, need to scale to canvas
+                         // Note: Coordinate mapping from CameraX Analysis to Preview View is complex
+                         // and depends on scaling type (Fill vs Fit).
+                         // Assuming FILL_CENTER logic roughly for now:
+
+                         val p0 = detectedQR.points[0]
+                         moveTo(p0.first * canvasWidth, p0.second * canvasHeight)
+
+                         for (i in 1 until detectedQR.points.size) {
+                             val p = detectedQR.points[i]
+                             lineTo(p.first * canvasWidth, p.second * canvasHeight)
+                         }
+                         close()
+                     }
+
+                     drawPath(
+                         path = path,
+                         color = Color.Yellow,
+                         style = Stroke(width = 8f)
+                     )
+
+                     // Draw corner markers for extra emphasis
+                     for (point in detectedQR.points) {
+                         drawCircle(
+                             color = Color.Yellow,
+                             radius = 16f,
+                             center = Offset(point.first * canvasWidth, point.second * canvasHeight)
+                         )
+                     }
+                 }
+            }
+
+            // Clickable Content Overlay
+            Surface(
+                modifier = modifier
+                    .padding(16.dp)
+                    .clickable {
+                        // Try to launch intent
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(detectedQR.text))
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            // If not a URL, maybe search it?
+                            try {
+                                val searchIntent = Intent(Intent.ACTION_WEB_SEARCH)
+                                searchIntent.putExtra(android.app.SearchManager.QUERY, detectedQR.text)
+                                context.startActivity(searchIntent)
+                            } catch (e2: Exception) {}
+                        }
+                    },
+                color = Color.Yellow.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(2.dp, Color.Black)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("QR Detected 🔗", fontWeight = FontWeight.Bold, color = Color.Black)
+                    Text(detectedQR.text, color = Color.Blue, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text("Tap to open", style = MaterialTheme.typography.labelSmall, color = Color.Black.copy(alpha = 0.7f))
+                }
             }
         }
     }
