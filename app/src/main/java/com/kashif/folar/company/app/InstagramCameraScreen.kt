@@ -199,15 +199,44 @@ fun InstagramCameraScreen(
         // 1.5 Letterboxing Masks
         // Simulate ratio masking. Usually camera preview is Fill Center.
         // We add black bars if ratio is not Full.
-        // Simplified Logic: 4:3 is standard. 1:1 needs large bars. 16:9 usually fits most screens.
         val ratioValue = when(selectedRatio) {
             AspectRatio.RATIO_4_3 -> 3f/4f
             AspectRatio.RATIO_16_9 -> 9f/16f
-            else -> 0f // Full
+            AspectRatio.RATIO_1_1 -> 1f
+            AspectRatio.RATIO_9_16 -> 9f/16f
         }
 
-        // This is a rudimentary mask. For production, use exact screen metrics.
-        // Here we just overlay bars for 1:1 and 4:3 on top of a presumably taller screen.
+        // Draw black bars (Letterboxing)
+        // Note: This assumes a portrait screen.
+        // 1:1 and 4:3 need Top/Bottom bars. 16:9/9:16 usually fills more.
+        if (selectedRatio != AspectRatio.RATIO_9_16) { // Assume 9:16 is "Full" on most phones
+             Canvas(modifier = Modifier.fillMaxSize()) {
+                 val screenW = size.width
+                 val screenH = size.height
+
+                 // Calculate target height based on width (assuming width matches screen)
+                 // For 1:1, H = W. For 4:3, H = W / (3/4) = W * 1.33
+                 val targetH = screenW / ratioValue
+
+                 if (targetH < screenH) {
+                     val barHeight = (screenH - targetH) / 2
+
+                     // Top Bar
+                     drawRect(
+                         color = Color.Black,
+                         topLeft = Offset(0f, 0f),
+                         size = Size(screenW, barHeight)
+                     )
+
+                     // Bottom Bar
+                     drawRect(
+                         color = Color.Black,
+                         topLeft = Offset(0f, screenH - barHeight),
+                         size = Size(screenW, barHeight)
+                     )
+                 }
+             }
+        }
 
         // 2. Top Controls
         TopControlBar(
@@ -219,23 +248,24 @@ fun InstagramCameraScreen(
             },
             selectedRatio = selectedRatio,
             onRatioToggle = {
-                // Cycle: 4:3 -> 16:9 -> Full -> 1:1
+                // Cycle: 4:3 -> 16:9 -> 1:1 -> 9:16 (Fullish)
                 val newRatio = when(selectedRatio) {
                     AspectRatio.RATIO_4_3 -> AspectRatio.RATIO_16_9
-                    AspectRatio.RATIO_16_9 -> AspectRatio.RATIO_4_3 // Fallback, we don't have FULL/1:1 in Enum yet so we cycle these 2 for now or interpret 4:3 as standard
-                    else -> AspectRatio.RATIO_4_3
+                    AspectRatio.RATIO_16_9 -> AspectRatio.RATIO_1_1
+                    AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_9_16
+                    AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_4_3
                 }
-                // HACK: To support 1:1 and Full without changing Enum yet, we can use local state if enum is restricted,
-                // but user asked for "4 Standar Google Ratio".
-                // Assuming AspectRatio enum has only 4:3 and 16:9 based on imports.
-                // We will simulate the crop in post-process, but set CameraX to nearest supported.
 
-                // Let's implement a custom cycler using a local int/enum if needed, but for now we bind to the provided AspectRatio enum
-                // and maybe overload it visually?
-                // Actually, let's just cycle the available ones and map them.
-
-                selectedRatio = if (selectedRatio == AspectRatio.RATIO_4_3) AspectRatio.RATIO_16_9 else AspectRatio.RATIO_4_3
-                onAspectRatioChange(selectedRatio)
+                selectedRatio = newRatio
+                // Note: onAspectRatioChange usually tells CameraX what resolution to pick.
+                // CameraX usually only supports 4:3 and 16:9 directly.
+                // We map 1:1 to 4:3 (closest) and 9:16 to 16:9.
+                val cameraXRatio = when(newRatio) {
+                    AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_3
+                    AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_16_9
+                    else -> newRatio
+                }
+                onAspectRatioChange(cameraXRatio)
             },
             onSettingsClick = { /* Open Bottom Sheet if needed */ },
             onToggleApi = onToggleApi
@@ -443,8 +473,14 @@ fun TopControlBar(
 
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             // Aspect Ratio Button
+            val ratioText = when(selectedRatio) {
+                AspectRatio.RATIO_4_3 -> "4:3"
+                AspectRatio.RATIO_16_9 -> "16:9"
+                AspectRatio.RATIO_1_1 -> "1:1"
+                AspectRatio.RATIO_9_16 -> "9:16" // Used as "Full" approx
+            }
             Text(
-                text = if (selectedRatio == AspectRatio.RATIO_4_3) "4:3" else "16:9",
+                text = ratioText,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
