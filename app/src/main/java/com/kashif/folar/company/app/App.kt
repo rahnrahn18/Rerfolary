@@ -494,7 +494,7 @@ private fun ModeSelector(
                 modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
                     .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-                    .clickable { onModeSelected(mode) }
+                    .clickable(onClick = { onModeSelected(mode) })
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Text(
@@ -749,7 +749,7 @@ private fun ApertureControl(apertureLevel: Float, onApertureChange: (Float) -> U
 private fun FlashModeControl(flashMode: FlashMode, onFlashModeChange: (FlashMode) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clickable { expanded = true }.padding(8.dp),
+        Modifier.fillMaxWidth().clickable(onClick = { expanded = true }).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(when (flashMode) { FlashMode.ON -> Lucide.Flashlight; FlashMode.OFF -> Lucide.FlashlightOff; FlashMode.AUTO -> Lucide.Flashlight }, "Flash", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
@@ -764,7 +764,7 @@ private fun FlashModeControl(flashMode: FlashMode, onFlashModeChange: (FlashMode
 private fun TorchModeControl(torchMode: TorchMode, onTorchModeChange: (TorchMode) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clickable { expanded = true }.padding(8.dp),
+        Modifier.fillMaxWidth().clickable(onClick = { expanded = true }).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(if (torchMode != TorchMode.OFF) Lucide.Flashlight else Lucide.FlashlightOff, "Torch", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
@@ -779,7 +779,7 @@ private fun TorchModeControl(torchMode: TorchMode, onTorchModeChange: (TorchMode
 private fun AspectRatioControl(aspectRatio: AspectRatio, onAspectRatioChange: (AspectRatio) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clickable { expanded = true }.padding(8.dp),
+        Modifier.fillMaxWidth().clickable(onClick = { expanded = true }).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(Lucide.Crop, "Aspect Ratio", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
@@ -796,7 +796,7 @@ private fun ResolutionControl(resolution: Pair<Int, Int>?, onResolutionChange: (
     val options = listOf(null, 1920 to 1080, 1280 to 720, 640 to 480)
     fun label(pair: Pair<Int, Int>?): String = pair?.let { "${it.first}x${it.second}" } ?: "Auto"
     Column(
-        Modifier.fillMaxWidth().clickable { expanded = true }.padding(8.dp),
+        Modifier.fillMaxWidth().clickable(onClick = { expanded = true }).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(Lucide.Frame, "Resolution", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
@@ -811,7 +811,7 @@ private fun ResolutionControl(resolution: Pair<Int, Int>?, onResolutionChange: (
 private fun ImageFormatControl(imageFormat: ImageFormat, onImageFormatChange: (ImageFormat) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clickable { expanded = true }.padding(8.dp),
+        Modifier.fillMaxWidth().clickable(onClick = { expanded = true }).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(Lucide.Image, "Format", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
@@ -826,7 +826,7 @@ private fun ImageFormatControl(imageFormat: ImageFormat, onImageFormatChange: (I
 private fun QualityPrioritizationControl(qualityPrioritization: QualityPrioritization, onQualityPrioritizationChange: (QualityPrioritization) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clickable { expanded = true }.padding(8.dp),
+        Modifier.fillMaxWidth().clickable(onClick = { expanded = true }).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(Lucide.Zap, "Quality", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
@@ -841,7 +841,7 @@ private fun QualityPrioritizationControl(qualityPrioritization: QualityPrioritiz
 private fun CameraDeviceTypeControl(cameraDeviceType: CameraDeviceType, onCameraDeviceTypeChange: (CameraDeviceType) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clickable { expanded = true }.padding(8.dp),
+        Modifier.fillMaxWidth().clickable(onClick = { expanded = true }).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(Lucide.SwitchCamera, "Type", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))

@@ -5,6 +5,9 @@
 
 // Disable FP16 optimization in OpenCV headers to avoid NDK NEON issues
 #define CV_FP16 0
+// Also disable NEON entirely for this compilation unit if headers are incompatible
+#undef __ARM_NEON
+#undef __ARM_FP16_FORMAT_IEEE
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/video.hpp>
