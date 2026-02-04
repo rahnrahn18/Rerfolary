@@ -341,17 +341,7 @@ fun InstagramCameraScreen(
                             when(currentMode) {
                                 CameraMode.PHOTO -> {
                                     scope.launch {
-                                        // Calculate float ratio for native
-                                        val ratioFloat = when(selectedRatio) {
-                                            AspectRatio.RATIO_1_1 -> 1.0f
-                                            AspectRatio.RATIO_4_5 -> 0.8f
-                                            AspectRatio.RATIO_3_4 -> 0.75f
-                                            AspectRatio.RATIO_9_16 -> 0.5625f
-                                            // Handle legacy just in case
-                                            AspectRatio.RATIO_4_3 -> 0.75f
-                                            AspectRatio.RATIO_16_9 -> 0.5625f
-                                        }
-                                        handlePhotoCapture(cameraController, imageSaverPlugin, ratioFloat) { bmp ->
+                                        handlePhotoCapture(cameraController, imageSaverPlugin, selectedRatio) { bmp ->
                                             lastCapturedImage = bmp
                                         }
                                     }
@@ -683,7 +673,7 @@ fun PluginOutputs(
 private suspend fun handlePhotoCapture(
     cameraController: CameraController,
     imageSaverPlugin: ImageSaverPlugin,
-    ratio: Float,
+    aspectRatio: AspectRatio,
     onImageCaptured: (ImageBitmap) -> Unit
 ) {
     when (val result = cameraController.takePictureToFile()) {
@@ -691,17 +681,73 @@ private suspend fun handlePhotoCapture(
             println("Image captured: ${result.filePath}")
             try {
                 withContext(Dispatchers.IO) {
-                    // Apply Optimized Processing (Lightweight)
-                    // This includes CLAHE, Gamma, and Crop
+                    // 1. Native Processing (Lighting Only)
                     try {
-                        NativeBridge.processImage(result.filePath, ratio)
+                        NativeBridge.processImage(result.filePath)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
 
-                    // Safe decode for preview (Downsample to avoid OOM)
-                    val options = BitmapFactory.Options().apply { inSampleSize = 8 } // Aggressive downsample for thumbnail
-                    val bitmap = BitmapFactory.decodeFile(result.filePath, options)
+                    // 2. Kotlin Cropping (If needed)
+                    // CameraX outputs 4:3 or 16:9. We need to crop to target ratio.
+                    try {
+                        val file = File(result.filePath)
+                        // Only crop if ratio is not native (assume native is 4:3 or 16:9)
+                        // Simplified: Always check dimensions and crop center
+
+                        // Decode bounds only first
+                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(file.absolutePath, options)
+                        val w = options.outWidth
+                        val h = options.outHeight
+
+                        if (w > 0 && h > 0) {
+                            val targetRatio = when(aspectRatio) {
+                                AspectRatio.RATIO_1_1 -> 1.0f
+                                AspectRatio.RATIO_4_5 -> 0.8f
+                                AspectRatio.RATIO_3_4, AspectRatio.RATIO_4_3 -> 0.75f
+                                AspectRatio.RATIO_9_16, AspectRatio.RATIO_16_9 -> 0.5625f
+                            }
+
+                            val currentRatio = w.toFloat() / h.toFloat()
+
+                            // Crop only if significant difference
+                            if (Math.abs(currentRatio - targetRatio) > 0.01) {
+                                val targetW: Int
+                                val targetH: Int
+
+                                if (currentRatio > targetRatio) {
+                                    // Too wide, crop width
+                                    targetH = h
+                                    targetW = (h * targetRatio).toInt()
+                                } else {
+                                    // Too tall, crop height
+                                    targetW = w
+                                    targetH = (w / targetRatio).toInt()
+                                }
+
+                                val cx = (w - targetW) / 2
+                                val cy = (h - targetH) / 2
+
+                                // Load only cropped region using BitmapRegionDecoder (Low Memory)
+                                val decoder = android.graphics.BitmapRegionDecoder.newInstance(file.absolutePath, false)
+                                val region = android.graphics.Rect(cx, cy, cx + targetW, cy + targetH)
+                                val croppedBitmap = decoder.decodeRegion(region, BitmapFactory.Options())
+
+                                // Overwrite file
+                                file.outputStream().use { out ->
+                                    croppedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, out)
+                                }
+                                croppedBitmap.recycle()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
+                    // Safe decode for preview
+                    val previewOptions = BitmapFactory.Options().apply { inSampleSize = 8 }
+                    val bitmap = BitmapFactory.decodeFile(result.filePath, previewOptions)
                     if (bitmap != null) {
                          withContext(Dispatchers.Main) {
                              onImageCaptured(bitmap.asImageBitmap())

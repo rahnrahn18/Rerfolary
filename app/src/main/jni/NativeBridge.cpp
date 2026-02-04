@@ -257,11 +257,10 @@ JNIEXPORT void JNICALL
 Java_com_kashif_folar_utils_NativeBridge_processImage(
     JNIEnv* env,
     jobject /* this */,
-    jstring jPath,
-    jfloat ratio) {
+    jstring jPath) {
 
     const char* path = env->GetStringUTFChars(jPath, 0);
-    LOGI("Starting Optimized Photo processing for: %s with ratio: %.2f", path, ratio);
+    LOGI("Starting Processing Only (CLAHE/Gamma) for: %s", path);
 
     Mat img = imread(path);
     if (img.empty()) {
@@ -270,35 +269,35 @@ Java_com_kashif_folar_utils_NativeBridge_processImage(
         return;
     }
 
-    Mat current = img.clone();
-    Mat next_step;
-
-    // 1. Smart Lighting (CLAHE on Luminance) - Lightweight
-    LOGI("Step 1: Smart Lighting (CLAHE)");
+    // Use in-place processing where possible to save memory
+    // CLAHE requires conversion, so we need some buffers, but minimize clones
     Mat lab;
-    cvtColor(current, lab, COLOR_BGR2Lab);
+    cvtColor(img, lab, COLOR_BGR2Lab);
 
     vector<Mat> lab_planes;
     split(lab, lab_planes);
 
+    // 1. Smart Lighting (CLAHE on Luminance)
     Ptr<CLAHE> clahe = createCLAHE();
     clahe->setClipLimit(2.0);
     clahe->setTilesGridSize(Size(8, 8));
     clahe->apply(lab_planes[0], lab_planes[0]);
 
     merge(lab_planes, lab);
-    cvtColor(lab, next_step, COLOR_Lab2BGR);
-    current = next_step.clone();
+    cvtColor(lab, img, COLOR_Lab2BGR);
 
-    // 2. Auto Light (Gamma Correction) - Lightweight
-    LOGI("Step 2: Auto Light (Gamma Correction)");
-    Scalar mean_val = mean(current);
+    // Release intermediate buffers
+    lab.release();
+    lab_planes.clear();
+
+    // 2. Auto Light (Gamma Correction)
+    Scalar mean_val = mean(img);
     double brightness = (mean_val[0] + mean_val[1] + mean_val[2]) / 3.0;
 
     double gamma = 1.0;
     if (brightness > 0) {
         gamma = log(0.5) / log(brightness / 255.0);
-        gamma = std::max(0.8, std::min(gamma, 1.2)); // Milder clamp for speed/stability
+        gamma = std::max(0.8, std::min(gamma, 1.2));
     }
 
     if (abs(gamma - 1.0) > 0.05) {
@@ -306,52 +305,11 @@ Java_com_kashif_folar_utils_NativeBridge_processImage(
         uchar* p = lookUpTable.ptr();
         for( int i = 0; i < 256; ++i)
             p[i] = saturate_cast<uchar>(pow(i / 255.0, gamma) * 255.0);
-        LUT(current, next_step, lookUpTable);
-        current = next_step.clone();
-    }
-
-    // 3. Aspect Ratio Cropping
-    // ratio is width/height (e.g., 1.0 for 1:1, 0.75 for 4:3, 0.5625 for 16:9)
-    // If ratio <= 0, we assume Full/Original, no crop.
-    if (ratio > 0.0) {
-        LOGI("Step 3: Cropping to ratio %.2f", ratio);
-        int imgW = current.cols;
-        int imgH = current.rows;
-        int targetW = imgW;
-        int targetH = imgH;
-
-        // Calculate target dimensions centered
-        // We assume we crop to fit the ratio within the current image
-        // Usually output is portrait, so ratio is w/h < 1.0
-
-        // Check if we need to crop width or height
-        double currentRatio = (double)imgW / imgH;
-
-        if (abs(currentRatio - ratio) > 0.01) {
-             if (currentRatio > ratio) {
-                 // Image is wider than target, crop width
-                 targetW = (int)(imgH * ratio);
-             } else {
-                 // Image is taller than target, crop height
-                 targetH = (int)(imgW / ratio);
-             }
-
-             int x = (imgW - targetW) / 2;
-             int y = (imgH - targetH) / 2;
-
-             Rect cropRegion(x, y, targetW, targetH);
-             // Ensure within bounds
-             cropRegion &= Rect(0, 0, imgW, imgH);
-
-             if (cropRegion.width > 0 && cropRegion.height > 0) {
-                 next_step = current(cropRegion);
-                 current = next_step.clone();
-             }
-        }
+        LUT(img, img, lookUpTable); // In-place LUT usually works or optimized internally
     }
 
     // Save Result (Overwrite)
-    if (imwrite(path, current)) {
+    if (imwrite(path, img)) {
         LOGI("Successfully saved processed image");
     } else {
         LOGE("Failed to save processed image");
