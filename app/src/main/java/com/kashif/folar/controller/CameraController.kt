@@ -67,6 +67,9 @@ class CameraController(
     private val pendingCaptures = atomic(0)
     private val maxConcurrentCaptures = 3
 
+    // Safety flag for async operations
+    private val isSessionActive = atomic(false)
+
     private val imageProcessingExecutor = Executors.newFixedThreadPool(2)
 
     fun bindCamera(previewView: PreviewView, onCameraReady: () -> Unit = {}) {
@@ -77,10 +80,19 @@ class CameraController(
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
+            // Async safety check: If session was stopped while waiting for future, abort.
+            if (!isSessionActive.value) {
+                Log.w("Folar", "==> bindCamera aborted: Session is no longer active")
+                return@addListener
+            }
+
             try {
                 cameraProvider = cameraProviderFuture.get()
                 cameraProvider?.unbindAll()
                 Log.d("Folar", "==> Unbind all existing cameras")
+
+                // Double check after unbind
+                if (!isSessionActive.value) return@addListener
 
                 val resolutionSelector = createResolutionSelector()
 
@@ -630,12 +642,14 @@ class CameraController(
     }
 
     fun startSession() {
+        isSessionActive.value = true
         memoryManager.updateMemoryStatus()
         memoryManager.clearBufferPools()
         initializeControllerPlugins()
     }
 
     fun stopSession() {
+        isSessionActive.value = false
         cameraProvider?.unbindAll()
         memoryManager.clearBufferPools()
     }
@@ -706,6 +720,7 @@ class CameraController(
     }
 
     fun cleanup() {
+        isSessionActive.value = false
         imageProcessingExecutor.shutdown()
         memoryManager.clearBufferPools()
     }

@@ -19,7 +19,12 @@ fun CameraPreviewView(
     modifier: Modifier
 ) {
     val context = LocalContext.current
-    val previewView = remember { PreviewView(context) }
+    val previewView = remember {
+        PreviewView(context).apply {
+            // Use COMPATIBLE mode (TextureView) to prevent SurfaceView z-ordering and lifecycle crashes in Compose
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
+    }
     
     DisposableEffect(controller, previewView) {
         controller.bindCamera(previewView) {
