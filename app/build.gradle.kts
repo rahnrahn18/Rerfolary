@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.kashif.folar"
     compileSdk = 35
+    buildToolsVersion = "35.0.1"
 
     defaultConfig {
         applicationId = "com.kashif.folar.app"
@@ -30,7 +31,7 @@ android {
     externalNativeBuild {
         cmake {
             path("src/main/jni/CMakeLists.txt")
-            version = "3.22.1"
+            version = "4.1.1"
         }
     }
 
