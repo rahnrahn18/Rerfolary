@@ -236,21 +236,9 @@ class CameraController(
     private fun configureCaptureUseCase(resolutionSelector: ResolutionSelector) {
         imageCapture = ImageCapture.Builder()
             .setFlashMode(flashMode.toCameraXFlashMode())
-            .setCaptureMode(
-                when (qualityPriority) {
-                    QualityPrioritization.QUALITY -> ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
-                    QualityPrioritization.SPEED -> ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG
-                    QualityPrioritization.BALANCED -> ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
-                    QualityPrioritization.NONE -> {
-                        if (memoryManager.isUnderMemoryPressure()) {
-                            ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
-                        } else {
-                            ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
-                        }
-                    }
-                }
-            )
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY) // Enforce Max Quality as requested
             .setResolutionSelector(resolutionSelector)
+            .setJpegQuality(100) // Ensure 100% Quality
             .build()
     }
 

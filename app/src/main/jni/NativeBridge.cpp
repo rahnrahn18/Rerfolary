@@ -257,10 +257,11 @@ JNIEXPORT void JNICALL
 Java_com_kashif_folar_utils_NativeBridge_processImage(
     JNIEnv* env,
     jobject /* this */,
-    jstring jPath) {
+    jstring jPath,
+    jfloat ratio) {
 
     const char* path = env->GetStringUTFChars(jPath, 0);
-    LOGI("Starting Beauty & Smart Light processing for: %s", path);
+    LOGI("Starting Optimized Photo processing for: %s with ratio: %.2f", path, ratio);
 
     Mat img = imread(path);
     if (img.empty()) {
@@ -272,24 +273,8 @@ Java_com_kashif_folar_utils_NativeBridge_processImage(
     Mat current = img.clone();
     Mat next_step;
 
-    // 1. Noise Killer (Reduced Strength)
-    // Requested: h=2 (was 20)
-    // This is very mild, just to remove digital grit without losing texture
-    LOGI("Step 1: Noise Killer (h=2)");
-    fastNlMeansDenoisingColored(current, next_step, 2, 2, 7, 21);
-    current = next_step.clone();
-
-    // 2. Face Smoothing (Bilateral Filter)
-    // Replaces Detail Booster.
-    // Keeps edges sharp (eyes, hair) but blurs flat areas (skin).
-    // d=9, sigmaColor=75, sigmaSpace=75 are standard "beauty" parameters.
-    LOGI("Step 2: Face Smoothing (Bilateral Filter)");
-    bilateralFilter(current, next_step, 9, 75, 75);
-    current = next_step.clone();
-
-    // 3. Smart Lighting (CLAHE on Luminance)
-    // We keep this but ensure it's not too aggressive.
-    LOGI("Step 3: Smart Lighting (CLAHE)");
+    // 1. Smart Lighting (CLAHE on Luminance) - Lightweight
+    LOGI("Step 1: Smart Lighting (CLAHE)");
     Mat lab;
     cvtColor(current, lab, COLOR_BGR2Lab);
 
@@ -297,7 +282,7 @@ Java_com_kashif_folar_utils_NativeBridge_processImage(
     split(lab, lab_planes);
 
     Ptr<CLAHE> clahe = createCLAHE();
-    clahe->setClipLimit(2.0); // Standard
+    clahe->setClipLimit(2.0);
     clahe->setTilesGridSize(Size(8, 8));
     clahe->apply(lab_planes[0], lab_planes[0]);
 
@@ -305,26 +290,16 @@ Java_com_kashif_folar_utils_NativeBridge_processImage(
     cvtColor(lab, next_step, COLOR_Lab2BGR);
     current = next_step.clone();
 
-    // 4. Auto Light (Gamma Correction)
-    // "Otomatiskan settingan keseluruhan... auto deteksi cahaya"
-    // We calculate mean brightness. If < 100 (dark), gamma < 1.0 (brighten). If > 160 (bright), gamma > 1.0 (darken).
-    // Target midpoint ~128.
-    LOGI("Step 4: Auto Light (Gamma Correction)");
+    // 2. Auto Light (Gamma Correction) - Lightweight
+    LOGI("Step 2: Auto Light (Gamma Correction)");
     Scalar mean_val = mean(current);
     double brightness = (mean_val[0] + mean_val[1] + mean_val[2]) / 3.0;
-    LOGI("Detected Brightness: %.2f", brightness);
 
     double gamma = 1.0;
-    // Simple logic: Target 128. Gamma = log(target/255) / log(current/255)
-    // Or simpler heuristic:
     if (brightness > 0) {
-        // We clamp correction to avoid extreme washing out or darkening
-        // E.g. limit gamma between 0.6 (brighten significantly) and 1.5 (darken)
         gamma = log(0.5) / log(brightness / 255.0);
-        // Clamp gamma
-        gamma = std::max(0.6, std::min(gamma, 1.4));
+        gamma = std::max(0.8, std::min(gamma, 1.2)); // Milder clamp for speed/stability
     }
-    LOGI("Applying Gamma: %.2f", gamma);
 
     if (abs(gamma - 1.0) > 0.05) {
         Mat lookUpTable(1, 256, CV_8U);
@@ -333,6 +308,46 @@ Java_com_kashif_folar_utils_NativeBridge_processImage(
             p[i] = saturate_cast<uchar>(pow(i / 255.0, gamma) * 255.0);
         LUT(current, next_step, lookUpTable);
         current = next_step.clone();
+    }
+
+    // 3. Aspect Ratio Cropping
+    // ratio is width/height (e.g., 1.0 for 1:1, 0.75 for 4:3, 0.5625 for 16:9)
+    // If ratio <= 0, we assume Full/Original, no crop.
+    if (ratio > 0.0) {
+        LOGI("Step 3: Cropping to ratio %.2f", ratio);
+        int imgW = current.cols;
+        int imgH = current.rows;
+        int targetW = imgW;
+        int targetH = imgH;
+
+        // Calculate target dimensions centered
+        // We assume we crop to fit the ratio within the current image
+        // Usually output is portrait, so ratio is w/h < 1.0
+
+        // Check if we need to crop width or height
+        double currentRatio = (double)imgW / imgH;
+
+        if (abs(currentRatio - ratio) > 0.01) {
+             if (currentRatio > ratio) {
+                 // Image is wider than target, crop width
+                 targetW = (int)(imgH * ratio);
+             } else {
+                 // Image is taller than target, crop height
+                 targetH = (int)(imgW / ratio);
+             }
+
+             int x = (imgW - targetW) / 2;
+             int y = (imgH - targetH) / 2;
+
+             Rect cropRegion(x, y, targetW, targetH);
+             // Ensure within bounds
+             cropRegion &= Rect(0, 0, imgW, imgH);
+
+             if (cropRegion.width > 0 && cropRegion.height > 0) {
+                 next_step = current(cropRegion);
+                 current = next_step.clone();
+             }
+        }
     }
 
     // Save Result (Overwrite)
