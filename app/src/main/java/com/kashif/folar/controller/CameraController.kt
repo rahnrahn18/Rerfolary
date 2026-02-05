@@ -52,6 +52,9 @@ class CameraController(
     internal var targetResolution: Pair<Int, Int>? = null
 ) {
 
+    // Default to HD, user can toggle to FHD
+    private var isFHDQuality: Boolean = false
+
     private var cameraProvider: ProcessCameraProvider? = null
     private var imageCapture: ImageCapture? = null
     private var videoCapture: VideoCapture<Recorder>? = null
@@ -250,13 +253,41 @@ class CameraController(
             .build()
     }
 
+    /**
+     * Set Video Quality preference.
+     * @param isFHD If true, prioritize 1080p (FHD). If false, prioritize 720p (HD).
+     */
+    fun setVideoQuality(isFHD: Boolean) {
+        if (this.isFHDQuality != isFHD) {
+            this.isFHDQuality = isFHD
+            restartCamera()
+        }
+    }
+
     private fun configureVideoCapture(resolutionSelector: ResolutionSelector) {
-        // Enforce aspect ratio in video recording by setting the strategy on Recorder.Builder
+        // Prioritize specific quality based on user selection (FHD or HD)
+        // User Requirement: Standard HD (720p), Switch to FHD (1080p) if icon pressed.
+        // We strictly avoid SD (480p) or lower to prevent pixelation.
+
+        val qualitySelector = if (isFHDQuality) {
+            // Priority: FHD -> UHD -> HD. (Strictly high definition)
+            QualitySelector.fromOrderedList(
+                listOf(Quality.FHD, Quality.UHD, Quality.HD),
+                FallbackStrategy.higherQualityOrLowerThan(Quality.HD) // Fallback mainly to higher
+            )
+        } else {
+            // Priority: HD -> FHD -> UHD. (Standard HD)
+            QualitySelector.fromOrderedList(
+                listOf(Quality.HD, Quality.FHD, Quality.UHD),
+                FallbackStrategy.higherQualityOrLowerThan(Quality.HD)
+            )
+        }
+
         val recorder = Recorder.Builder()
-            .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
+            .setQualitySelector(qualitySelector)
             .build()
+
         videoCapture = VideoCapture.Builder(recorder)
-            .setResolutionSelector(resolutionSelector)
             .build()
     }
 
@@ -517,14 +548,8 @@ class CameraController(
                     if (!needsProcessing) {
                         tempFile.readBytes().also { tempFile.delete() }
                     } else {
-                        val options = BitmapFactory.Options().apply {
-                            if (memoryManager.isUnderMemoryPressure()) {
-                                inJustDecodeBounds = true
-                                BitmapFactory.decodeFile(tempFile.absolutePath, this)
-                                inSampleSize = calculateSampleSize(outWidth, outHeight)
-                                inJustDecodeBounds = false
-                            }
-                        }
+                        // Do not downsample for quality. Load full size.
+                        val options = BitmapFactory.Options()
 
                         val originalBitmap = BitmapFactory.decodeFile(tempFile.absolutePath, options)
                         tempFile.delete()

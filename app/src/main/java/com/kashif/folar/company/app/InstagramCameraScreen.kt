@@ -56,12 +56,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import android.graphics.BitmapFactory
 import androidx.compose.ui.platform.LocalContext
+import com.composables.icons.lucide.Activity
 import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Flashlight
 import com.composables.icons.lucide.FlashlightOff
 import com.composables.icons.lucide.Image
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Scan
 import com.composables.icons.lucide.Settings
 import com.composables.icons.lucide.SwitchCamera
 import com.composables.icons.lucide.Video
@@ -124,12 +126,20 @@ fun InstagramCameraScreen(
     // States
     var currentMode by remember { mutableStateOf(CameraMode.PHOTO) }
     var isRecording by remember { mutableStateOf(false) }
-    var isStabilizing by remember { mutableStateOf(false) }
+    var isProcessing by remember { mutableStateOf(false) }
+    var processingMessage by remember { mutableStateOf("Processing...") }
     var lastCapturedImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var flashMode by remember { mutableStateOf(FlashMode.OFF) }
 
+    // Smart Features State
+    var isSmartStabilizationOn by remember { mutableStateOf(false) }
+    var isObjectTrackingOn by remember { mutableStateOf(false) }
+
     // We use the passed aspectRatio prop for UI state to ensure sync
     // var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_3_4) } // Removed local state
+
+    // Video Quality State (HD vs FHD)
+    var isFHDQuality by remember { mutableStateOf(false) }
 
     // Plugin States
     var isOCREnabled by remember { mutableStateOf(false) }
@@ -225,24 +235,27 @@ fun InstagramCameraScreen(
         TopControlBar(
             modifier = Modifier.align(Alignment.TopCenter),
             flashMode = flashMode,
+            currentMode = currentMode,
+            aspectRatio = aspectRatio,
+            isFHDQuality = isFHDQuality,
             onFlashToggle = {
                 cameraController.toggleFlashMode()
                 flashMode = cameraController.getFlashMode() ?: FlashMode.OFF
             },
-            selectedRatio = aspectRatio,
-            onRatioToggle = {
+            onAspectRatioToggle = {
                 // Cycle: 1:1 -> 4:5 -> 3:4 -> 9:16
                 val newRatio = when(aspectRatio) {
                     AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_5
                     AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_3_4
                     AspectRatio.RATIO_3_4 -> AspectRatio.RATIO_9_16
                     AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_1_1
-                    else -> AspectRatio.RATIO_1_1 // Default fallback for old states
+                    else -> AspectRatio.RATIO_1_1
                 }
-
-                // Map to CameraX supported ratios (4:3 or 16:9)
-                // Note: Actual logic happens in CameraController, here we just ask for the visual aspect ratio
                 onAspectRatioChange(newRatio)
+            },
+            onQualityToggle = {
+                isFHDQuality = !isFHDQuality
+                cameraController.setVideoQuality(isFHDQuality)
             },
             onSettingsClick = { /* Open Bottom Sheet if needed */ }
         )
@@ -253,6 +266,23 @@ fun InstagramCameraScreen(
             currentMode = currentMode,
             recognizedText = recognizedText
         )
+
+        // 3.5 Right Control Bar (Video Features)
+        if (currentMode == CameraMode.VIDEO) {
+            RightControlBar(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                isStabilizationOn = isSmartStabilizationOn,
+                isTrackingOn = isObjectTrackingOn,
+                onToggleStabilization = {
+                    isSmartStabilizationOn = !isSmartStabilizationOn
+                    if (isSmartStabilizationOn) isObjectTrackingOn = false
+                },
+                onToggleTracking = {
+                    isObjectTrackingOn = !isObjectTrackingOn
+                    if (isObjectTrackingOn) isSmartStabilizationOn = false
+                }
+            )
+        }
 
         // 4. Bottom Area (Gradient Background)
         Box(
@@ -325,38 +355,51 @@ fun InstagramCameraScreen(
                                         // Stop Recording
                                         isRecording = false
                                         cameraController.stopRecording()
-                                        // Stabilization is triggered in the callback passed to startRecording
+                                        // Processing is triggered in the callback passed to startRecording
                                     } else {
                                         // Start Recording
                                         isRecording = true
                                         cameraController.startRecording(
                                             onVideoSaved = { videoFile ->
-                                                // Trigger Stabilization
-                                                isStabilizing = true
-                                                scope.launch(Dispatchers.IO) {
-                                                    try {
-                                                        val outputFile = File(videoFile.parent, "STAB_${videoFile.name}")
-                                                        NativeBridge.stabilizeVideo(videoFile.absolutePath, outputFile.absolutePath)
+                                                // Trigger Processing if enabled
+                                                if (isSmartStabilizationOn || isObjectTrackingOn) {
+                                                    isProcessing = true
+                                                    processingMessage = if (isSmartStabilizationOn) "Stabilizing Video..." else "Tracking Object..."
 
-                                                        // Update the video file reference if we want to preview/save the stabilized one
-                                                        // For now, we just notify the gallery of the new file
-                                                        android.media.MediaScannerConnection.scanFile(
-                                                            context,
-                                                            arrayOf(outputFile.absolutePath),
-                                                            arrayOf("video/mp4"),
-                                                            null
-                                                        )
+                                                    scope.launch(Dispatchers.IO) {
+                                                        try {
+                                                            val outputFile = File(videoFile.parent, "PROCESSED_${videoFile.name}")
 
-                                                        withContext(Dispatchers.Main) {
-                                                            isStabilizing = false
-                                                            // Provide feedback to user
-                                                            android.widget.Toast.makeText(context, "Video stabilized and saved!", android.widget.Toast.LENGTH_SHORT).show()
+                                                            if (isSmartStabilizationOn) {
+                                                                 NativeBridge.stabilizeVideo(videoFile.absolutePath, outputFile.absolutePath)
+                                                            } else if (isObjectTrackingOn) {
+                                                                 NativeBridge.trackObjectVideo(videoFile.absolutePath, outputFile.absolutePath)
+                                                            }
+
+                                                            // Notify gallery of processed file
+                                                            android.media.MediaScannerConnection.scanFile(
+                                                                context,
+                                                                arrayOf(outputFile.absolutePath),
+                                                                arrayOf("video/mp4"),
+                                                                null
+                                                            )
+
+                                                            withContext(Dispatchers.Main) {
+                                                                isProcessing = false
+                                                                android.widget.Toast.makeText(context, "Video Processed & Saved!", android.widget.Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        } catch (e: Exception) {
+                                                            e.printStackTrace()
+                                                            withContext(Dispatchers.Main) {
+                                                                isProcessing = false
+                                                                android.widget.Toast.makeText(context, "Processing Failed", android.widget.Toast.LENGTH_SHORT).show()
+                                                            }
                                                         }
-                                                    } catch (e: Exception) {
-                                                        e.printStackTrace()
-                                                        withContext(Dispatchers.Main) {
-                                                            isStabilizing = false
-                                                        }
+                                                    }
+                                                } else {
+                                                    // No processing
+                                                    scope.launch(Dispatchers.Main) {
+                                                        android.widget.Toast.makeText(context, "Video Saved!", android.widget.Toast.LENGTH_SHORT).show()
                                                     }
                                                 }
                                             },
@@ -386,8 +429,8 @@ fun InstagramCameraScreen(
             }
         }
 
-        // 5. Processing Overlay (Only for Video Stabilization now)
-        if (isStabilizing) {
+        // 5. Processing Overlay
+        if (isProcessing) {
             Dialog(onDismissRequest = {}) {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
@@ -400,8 +443,8 @@ fun InstagramCameraScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         CircularProgressIndicator(color = Color.Black)
-                        Text("Stabilizing Video...", fontWeight = FontWeight.Bold, color = Color.Black)
-                        Text("Please wait while we process using NativeBridge + OpenCV", style = MaterialTheme.typography.bodySmall, color = Color.Gray, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Text(processingMessage, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text("Applying Smart Intelligence Logic...", style = MaterialTheme.typography.bodySmall, color = Color.Gray, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }
                 }
             }
@@ -421,63 +464,186 @@ fun InstagramCameraScreen(
 }
 
 @Composable
+fun RightControlBar(
+    modifier: Modifier = Modifier,
+    isStabilizationOn: Boolean,
+    isTrackingOn: Boolean,
+    onToggleStabilization: () -> Unit,
+    onToggleTracking: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .padding(end = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Smart Stabilization Icon (Small Size)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            IconButton(
+                onClick = onToggleStabilization,
+                modifier = Modifier
+                    .size(40.dp) // Reduced from 48dp
+                    .background(if (isStabilizationOn) Color.Yellow else Color.Black.copy(alpha = 0.5f), CircleShape)
+                    .border(1.dp, Color.White, CircleShape)
+            ) {
+                Icon(
+                    imageVector = Lucide.Activity,
+                    contentDescription = "Stabilize",
+                    tint = if (isStabilizationOn) Color.Black else Color.White,
+                    modifier = Modifier.size(20.dp) // Smaller icon
+                )
+            }
+            if (isStabilizationOn) {
+                Text("Steady", color = Color.Yellow, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Object Tracking Icon (Small Size)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            IconButton(
+                onClick = onToggleTracking,
+                modifier = Modifier
+                    .size(40.dp) // Reduced from 48dp
+                    .background(if (isTrackingOn) Color.Yellow else Color.Black.copy(alpha = 0.5f), CircleShape)
+                    .border(1.dp, Color.White, CircleShape)
+            ) {
+                Icon(
+                    imageVector = Lucide.Scan,
+                    contentDescription = "Track",
+                    tint = if (isTrackingOn) Color.Black else Color.White,
+                    modifier = Modifier.size(20.dp) // Smaller icon
+                )
+            }
+            if (isTrackingOn) {
+                Text("Track", color = Color.Yellow, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
 fun TopControlBar(
     modifier: Modifier = Modifier,
     flashMode: FlashMode,
-    selectedRatio: AspectRatio,
+    currentMode: CameraMode,
+    aspectRatio: AspectRatio,
+    isFHDQuality: Boolean,
     onFlashToggle: () -> Unit,
-    onRatioToggle: () -> Unit,
+    onAspectRatioToggle: () -> Unit,
+    onQualityToggle: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = 48.dp, start = 16.dp, end = 16.dp)
-    ) {
-        // Left: Settings
-        IconButton(
-            onClick = onSettingsClick,
-            modifier = Modifier.align(Alignment.CenterStart)
+    if (currentMode == CameraMode.PHOTO) {
+        // Photo Mode: Settings (Left), Aspect Ratio (Center), Flash (Right)
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(top = 48.dp, start = 16.dp, end = 16.dp)
         ) {
-            Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
-        }
+            // Left
+            IconButton(
+                onClick = onSettingsClick,
+                modifier = Modifier.align(Alignment.CenterStart)
+            ) {
+                Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
+            }
 
-        // Center: Ratio
-        val ratioText = when(selectedRatio) {
-            AspectRatio.RATIO_1_1 -> "1:1"
-            AspectRatio.RATIO_4_5 -> "4:5"
-            AspectRatio.RATIO_3_4 -> "3:4"
-            AspectRatio.RATIO_9_16 -> "9:16"
-            // Handle legacy enums
-            AspectRatio.RATIO_4_3 -> "3:4"
-            AspectRatio.RATIO_16_9 -> "9:16"
-        }
-
-        Text(
-            text = ratioText,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .border(1.dp, Color.White, CircleShape)
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-                .clickable { onRatioToggle() }
-        )
-
-        // Right: Flash (Previously Switch API was here)
-        IconButton(
-            onClick = onFlashToggle,
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
-            Icon(
-                imageVector = when(flashMode) {
-                    FlashMode.ON -> Lucide.Flashlight
-                    FlashMode.OFF -> Lucide.FlashlightOff
-                    FlashMode.AUTO -> Lucide.Flashlight
-                },
-                contentDescription = "Flash",
-                tint = Color.White
+            // Center: Aspect Ratio
+            val ratioText = when(aspectRatio) {
+                AspectRatio.RATIO_1_1 -> "1:1"
+                AspectRatio.RATIO_4_5 -> "4:5"
+                AspectRatio.RATIO_3_4 -> "3:4"
+                AspectRatio.RATIO_9_16 -> "9:16"
+                AspectRatio.RATIO_4_3 -> "3:4"
+                AspectRatio.RATIO_16_9 -> "9:16"
+            }
+            Text(
+                text = ratioText,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .border(1.dp, Color.White, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .clickable { onAspectRatioToggle() }
             )
+
+            // Right
+            IconButton(
+                onClick = onFlashToggle,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                Icon(
+                    imageVector = when(flashMode) {
+                        FlashMode.ON -> Lucide.Flashlight
+                        FlashMode.OFF -> Lucide.FlashlightOff
+                        FlashMode.AUTO -> Lucide.Flashlight
+                    },
+                    contentDescription = "Flash",
+                    tint = Color.White
+                )
+            }
+        }
+    } else {
+        // Video Mode: Evenly Spaced Row
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(top = 48.dp, start = 16.dp, end = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 1. Settings
+            IconButton(onClick = onSettingsClick) {
+                Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
+            }
+
+            // 2. Aspect Ratio
+            val ratioText = when(aspectRatio) {
+                AspectRatio.RATIO_1_1 -> "1:1"
+                AspectRatio.RATIO_4_5 -> "4:5"
+                AspectRatio.RATIO_3_4 -> "3:4"
+                AspectRatio.RATIO_9_16 -> "9:16"
+                AspectRatio.RATIO_4_3 -> "3:4"
+                AspectRatio.RATIO_16_9 -> "9:16"
+            }
+            Text(
+                text = ratioText,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .border(1.dp, Color.White, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .clickable { onAspectRatioToggle() }
+            )
+
+            // 3. Video Quality
+            val qualityText = if (isFHDQuality) "FHD" else "HD"
+            val borderColor = if (isFHDQuality) Color.Yellow else Color.White
+            val textColor = if (isFHDQuality) Color.Yellow else Color.White
+
+            Text(
+                text = qualityText,
+                color = textColor,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .border(1.dp, borderColor, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .clickable { onQualityToggle() }
+            )
+
+            // 4. Flash
+            IconButton(onClick = onFlashToggle) {
+                Icon(
+                    imageVector = when(flashMode) {
+                        FlashMode.ON -> Lucide.Flashlight
+                        FlashMode.OFF -> Lucide.FlashlightOff
+                        FlashMode.AUTO -> Lucide.Flashlight
+                    },
+                    contentDescription = "Flash",
+                    tint = Color.White
+                )
+            }
         }
     }
 }
