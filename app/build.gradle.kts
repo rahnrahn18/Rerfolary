@@ -72,7 +72,9 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.extensions)
-    implementation("androidx.camera:camera-video:1.3.1")
+
+    // Upgraded camera-video to match core version (1.5.1) to support setAspectRatioStrategy
+    implementation("androidx.camera:camera-video:1.5.1")
 
     implementation(libs.androidx.startup.runtime)
     implementation(libs.kotlinx.coroutines.android)
