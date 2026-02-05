@@ -193,7 +193,7 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
 
     // --- Step 3: Smooth Trajectory (Gaussian / Sliding Window) ---
     vector<Trajectory> smoothed_trajectory;
-    int radius = 30; // Larger radius for more stability (cinematic feel)
+    int radius = 60; // Increased radius for "very smooth" results (aggressive smoothing)
 
     for(size_t i=0; i < trajectory.size(); i++) {
         double sum_x = 0, sum_y = 0, sum_a = 0;
@@ -225,7 +225,7 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     clahe->setTilesGridSize(Size(8, 8));
 
     // Zoom to hide black borders
-    double scale = 1.1; // 10% zoom
+    double scale = 1.4; // 40% zoom (Aggressive Crop for Extreme Stabilization)
     Mat T_scale = getRotationMatrix2D(Point2f(width/2, height/2), 0, scale);
     Mat T_scale_3x3 = Mat::eye(3, 3, CV_64F);
     T_scale.copyTo(T_scale_3x3(Rect(0,0,3,2)));

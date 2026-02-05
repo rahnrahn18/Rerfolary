@@ -138,6 +138,9 @@ fun InstagramCameraScreen(
     // We use the passed aspectRatio prop for UI state to ensure sync
     // var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_3_4) } // Removed local state
 
+    // Video Quality State (HD vs FHD)
+    var isFHDQuality by remember { mutableStateOf(false) }
+
     // Plugin States
     var isOCREnabled by remember { mutableStateOf(false) }
 
@@ -232,24 +235,15 @@ fun InstagramCameraScreen(
         TopControlBar(
             modifier = Modifier.align(Alignment.TopCenter),
             flashMode = flashMode,
+            currentMode = currentMode,
+            isFHDQuality = isFHDQuality,
             onFlashToggle = {
                 cameraController.toggleFlashMode()
                 flashMode = cameraController.getFlashMode() ?: FlashMode.OFF
             },
-            selectedRatio = aspectRatio,
-            onRatioToggle = {
-                // Cycle: 1:1 -> 4:5 -> 3:4 -> 9:16
-                val newRatio = when(aspectRatio) {
-                    AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_5
-                    AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_3_4
-                    AspectRatio.RATIO_3_4 -> AspectRatio.RATIO_9_16
-                    AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_1_1
-                    else -> AspectRatio.RATIO_1_1 // Default fallback for old states
-                }
-
-                // Map to CameraX supported ratios (4:3 or 16:9)
-                // Note: Actual logic happens in CameraController, here we just ask for the visual aspect ratio
-                onAspectRatioChange(newRatio)
+            onQualityToggle = {
+                isFHDQuality = !isFHDQuality
+                cameraController.setVideoQuality(isFHDQuality)
             },
             onSettingsClick = { /* Open Bottom Sheet if needed */ }
         )
@@ -517,9 +511,10 @@ fun RightControlBar(
 fun TopControlBar(
     modifier: Modifier = Modifier,
     flashMode: FlashMode,
-    selectedRatio: AspectRatio,
+    currentMode: CameraMode,
+    isFHDQuality: Boolean,
     onFlashToggle: () -> Unit,
-    onRatioToggle: () -> Unit,
+    onQualityToggle: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
     Box(
@@ -535,27 +530,23 @@ fun TopControlBar(
             Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
         }
 
-        // Center: Ratio
-        val ratioText = when(selectedRatio) {
-            AspectRatio.RATIO_1_1 -> "1:1"
-            AspectRatio.RATIO_4_5 -> "4:5"
-            AspectRatio.RATIO_3_4 -> "3:4"
-            AspectRatio.RATIO_9_16 -> "9:16"
-            // Handle legacy enums
-            AspectRatio.RATIO_4_3 -> "3:4"
-            AspectRatio.RATIO_16_9 -> "9:16"
-        }
+        // Center: Quality Toggle (Video Only) or Nothing (Photo - Aspect Ratio removed)
+        if (currentMode == CameraMode.VIDEO) {
+            val qualityText = if (isFHDQuality) "FHD" else "HD"
+            val borderColor = if (isFHDQuality) Color.Yellow else Color.White
+            val textColor = if (isFHDQuality) Color.Yellow else Color.White
 
-        Text(
-            text = ratioText,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .border(1.dp, Color.White, CircleShape)
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-                .clickable { onRatioToggle() }
-        )
+            Text(
+                text = qualityText,
+                color = textColor,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .border(1.dp, borderColor, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .clickable { onQualityToggle() }
+            )
+        }
 
         // Right: Flash (Previously Switch API was here)
         IconButton(
