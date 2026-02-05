@@ -56,12 +56,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import android.graphics.BitmapFactory
 import androidx.compose.ui.platform.LocalContext
+import com.composables.icons.lucide.Activity
 import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Flashlight
 import com.composables.icons.lucide.FlashlightOff
 import com.composables.icons.lucide.Image
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Scan
 import com.composables.icons.lucide.Settings
 import com.composables.icons.lucide.SwitchCamera
 import com.composables.icons.lucide.Video
@@ -124,9 +126,14 @@ fun InstagramCameraScreen(
     // States
     var currentMode by remember { mutableStateOf(CameraMode.PHOTO) }
     var isRecording by remember { mutableStateOf(false) }
-    var isStabilizing by remember { mutableStateOf(false) }
+    var isProcessing by remember { mutableStateOf(false) }
+    var processingMessage by remember { mutableStateOf("Processing...") }
     var lastCapturedImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var flashMode by remember { mutableStateOf(FlashMode.OFF) }
+
+    // Smart Features State
+    var isSmartStabilizationOn by remember { mutableStateOf(false) }
+    var isObjectTrackingOn by remember { mutableStateOf(false) }
 
     // We use the passed aspectRatio prop for UI state to ensure sync
     // var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_3_4) } // Removed local state
@@ -254,6 +261,23 @@ fun InstagramCameraScreen(
             recognizedText = recognizedText
         )
 
+        // 3.5 Right Control Bar (Video Features)
+        if (currentMode == CameraMode.VIDEO) {
+            RightControlBar(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                isStabilizationOn = isSmartStabilizationOn,
+                isTrackingOn = isObjectTrackingOn,
+                onToggleStabilization = {
+                    isSmartStabilizationOn = !isSmartStabilizationOn
+                    if (isSmartStabilizationOn) isObjectTrackingOn = false
+                },
+                onToggleTracking = {
+                    isObjectTrackingOn = !isObjectTrackingOn
+                    if (isObjectTrackingOn) isSmartStabilizationOn = false
+                }
+            )
+        }
+
         // 4. Bottom Area (Gradient Background)
         Box(
             modifier = Modifier
@@ -325,38 +349,51 @@ fun InstagramCameraScreen(
                                         // Stop Recording
                                         isRecording = false
                                         cameraController.stopRecording()
-                                        // Stabilization is triggered in the callback passed to startRecording
+                                        // Processing is triggered in the callback passed to startRecording
                                     } else {
                                         // Start Recording
                                         isRecording = true
                                         cameraController.startRecording(
                                             onVideoSaved = { videoFile ->
-                                                // Trigger Stabilization
-                                                isStabilizing = true
-                                                scope.launch(Dispatchers.IO) {
-                                                    try {
-                                                        val outputFile = File(videoFile.parent, "STAB_${videoFile.name}")
-                                                        NativeBridge.stabilizeVideo(videoFile.absolutePath, outputFile.absolutePath)
+                                                // Trigger Processing if enabled
+                                                if (isSmartStabilizationOn || isObjectTrackingOn) {
+                                                    isProcessing = true
+                                                    processingMessage = if (isSmartStabilizationOn) "Stabilizing Video..." else "Tracking Object..."
 
-                                                        // Update the video file reference if we want to preview/save the stabilized one
-                                                        // For now, we just notify the gallery of the new file
-                                                        android.media.MediaScannerConnection.scanFile(
-                                                            context,
-                                                            arrayOf(outputFile.absolutePath),
-                                                            arrayOf("video/mp4"),
-                                                            null
-                                                        )
+                                                    scope.launch(Dispatchers.IO) {
+                                                        try {
+                                                            val outputFile = File(videoFile.parent, "PROCESSED_${videoFile.name}")
 
-                                                        withContext(Dispatchers.Main) {
-                                                            isStabilizing = false
-                                                            // Provide feedback to user
-                                                            android.widget.Toast.makeText(context, "Video stabilized and saved!", android.widget.Toast.LENGTH_SHORT).show()
+                                                            if (isSmartStabilizationOn) {
+                                                                 NativeBridge.stabilizeVideo(videoFile.absolutePath, outputFile.absolutePath)
+                                                            } else if (isObjectTrackingOn) {
+                                                                 NativeBridge.trackObjectVideo(videoFile.absolutePath, outputFile.absolutePath)
+                                                            }
+
+                                                            // Notify gallery of processed file
+                                                            android.media.MediaScannerConnection.scanFile(
+                                                                context,
+                                                                arrayOf(outputFile.absolutePath),
+                                                                arrayOf("video/mp4"),
+                                                                null
+                                                            )
+
+                                                            withContext(Dispatchers.Main) {
+                                                                isProcessing = false
+                                                                android.widget.Toast.makeText(context, "Video Processed & Saved!", android.widget.Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        } catch (e: Exception) {
+                                                            e.printStackTrace()
+                                                            withContext(Dispatchers.Main) {
+                                                                isProcessing = false
+                                                                android.widget.Toast.makeText(context, "Processing Failed", android.widget.Toast.LENGTH_SHORT).show()
+                                                            }
                                                         }
-                                                    } catch (e: Exception) {
-                                                        e.printStackTrace()
-                                                        withContext(Dispatchers.Main) {
-                                                            isStabilizing = false
-                                                        }
+                                                    }
+                                                } else {
+                                                    // No processing
+                                                    scope.launch(Dispatchers.Main) {
+                                                        android.widget.Toast.makeText(context, "Video Saved!", android.widget.Toast.LENGTH_SHORT).show()
                                                     }
                                                 }
                                             },
@@ -386,8 +423,8 @@ fun InstagramCameraScreen(
             }
         }
 
-        // 5. Processing Overlay (Only for Video Stabilization now)
-        if (isStabilizing) {
+        // 5. Processing Overlay
+        if (isProcessing) {
             Dialog(onDismissRequest = {}) {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
@@ -400,8 +437,8 @@ fun InstagramCameraScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         CircularProgressIndicator(color = Color.Black)
-                        Text("Stabilizing Video...", fontWeight = FontWeight.Bold, color = Color.Black)
-                        Text("Please wait while we process using NativeBridge + OpenCV", style = MaterialTheme.typography.bodySmall, color = Color.Gray, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Text(processingMessage, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text("Applying Smart Intelligence Logic...", style = MaterialTheme.typography.bodySmall, color = Color.Gray, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }
                 }
             }
@@ -416,6 +453,62 @@ fun InstagramCameraScreen(
             }
             // Small preview handled in gallery button, but if we want full screen preview:
             // Keeping it simple for now as requested "Instagram like"
+        }
+    }
+}
+
+@Composable
+fun RightControlBar(
+    modifier: Modifier = Modifier,
+    isStabilizationOn: Boolean,
+    isTrackingOn: Boolean,
+    onToggleStabilization: () -> Unit,
+    onToggleTracking: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .padding(end = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Smart Stabilization Icon
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            IconButton(
+                onClick = onToggleStabilization,
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(if (isStabilizationOn) Color.Yellow else Color.Black.copy(alpha = 0.5f), CircleShape)
+                    .border(1.dp, Color.White, CircleShape)
+            ) {
+                Icon(
+                    imageVector = Lucide.Activity,
+                    contentDescription = "Stabilize",
+                    tint = if (isStabilizationOn) Color.Black else Color.White
+                )
+            }
+            if (isStabilizationOn) {
+                Text("Steady", color = Color.Yellow, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Object Tracking Icon
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            IconButton(
+                onClick = onToggleTracking,
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(if (isTrackingOn) Color.Yellow else Color.Black.copy(alpha = 0.5f), CircleShape)
+                    .border(1.dp, Color.White, CircleShape)
+            ) {
+                Icon(
+                    imageVector = Lucide.Scan,
+                    contentDescription = "Track",
+                    tint = if (isTrackingOn) Color.Black else Color.White
+                )
+            }
+            if (isTrackingOn) {
+                Text("Track", color = Color.Yellow, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
