@@ -1,5 +1,7 @@
 package com.kashif.folar.compose
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator
@@ -17,14 +19,6 @@ import com.kashif.folar.state.FolarStateHolder
 /**
  * CompositionLocal for providing [FolarStateHolder] to descendants.
  * Use this to avoid passing the state holder through multiple levels of composables.
- * 
- * @example
- * ```kotlin
- * CompositionLocalProvider(LocalFolarStateHolder provides stateHolder) {
- *     // Descendants can access stateHolder via LocalFolarStateHolder.current
- *     CameraControls()
- * }
- * ```
  */
 val LocalFolarStateHolder = compositionLocalOf<FolarStateHolder?> { null }
 
@@ -32,35 +26,8 @@ val LocalFolarStateHolder = compositionLocalOf<FolarStateHolder?> { null }
  * Root camera screen that provides state to all descendants.
  * This composable manages the full camera lifecycle and provides a slot-based API.
  * 
- * @param modifier Modifier for the root container.
- * @param cameraState The current camera state from [rememberFolarState].
- * @param loadingContent Composable to show during initialization (default: loading indicator).
- * @param errorContent Composable to show on error (default: error message).
- * @param showPreview Whether to automatically show the camera preview (default: true).
- * @param content Main content to display when camera is ready. Receives the Ready state.
- * 
- * @example
- * ```kotlin
- * @Composable
- * fun MyCameraApp() {
- *     val cameraState by rememberFolarState()
- *     
- *     FolarScreen(
- *         cameraState = cameraState,
- *         loadingContent = { CustomLoadingSpinner() },
- *         errorContent = { error -> CustomErrorUI(error) }
- *     ) { state ->
- *         // Camera preview is shown automatically
- *         // Add controls overlay here
- *         Box(modifier = Modifier.fillMaxSize()) {
- *             CameraControls(
- *                 uiState = state.uiState,
- *                 modifier = Modifier.align(Alignment.BottomCenter)
- *             )
- *         }
- *     }
- * }
- * ```
+ * Uses [Crossfade] to stabilize state transitions and prevent "LayoutNode should be attached to an owner"
+ * crashes caused by rapid destruction/creation of AndroidView nodes.
  */
 @Composable
 fun FolarScreen(
@@ -72,18 +39,30 @@ fun FolarScreen(
     content: @Composable (FolarState.Ready) -> Unit
 ) {
     Box(modifier = modifier) {
-        when (cameraState) {
-            is FolarState.Initializing -> loadingContent()
-            is FolarState.Ready -> {
-                if (showPreview) {
-                    CameraPreviewView(
-                        controller = cameraState.controller,
-                        modifier = Modifier.fillMaxSize()
-                    )
+        Crossfade(
+            targetState = cameraState,
+            animationSpec = tween(durationMillis = 300),
+            label = "CameraStateTransition"
+        ) { state ->
+            when (state) {
+                is FolarState.Initializing -> {
+                    loadingContent()
                 }
-                content(cameraState)
+                is FolarState.Ready -> {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        if (showPreview) {
+                            CameraPreviewView(
+                                controller = state.controller,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        content(state)
+                    }
+                }
+                is FolarState.Error -> {
+                    errorContent(state)
+                }
             }
-            is FolarState.Error -> errorContent(cameraState)
         }
     }
 }
@@ -114,8 +93,6 @@ fun DefaultLoadingScreen() {
 
 /**
  * Default error screen shown when camera initialization fails.
- * 
- * @param errorState The error state containing exception and message.
  */
 @Composable
 fun DefaultErrorScreen(errorState: FolarState.Error) {

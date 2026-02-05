@@ -4,13 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.hardware.camera2.CameraCharacteristics
 import android.media.ExifInterface
 import android.util.Log
 import android.util.Size
 import androidx.annotation.OptIn
-import androidx.camera.camera2.interop.Camera2CameraInfo
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -70,20 +67,32 @@ class CameraController(
     private val pendingCaptures = atomic(0)
     private val maxConcurrentCaptures = 3
 
+    // Safety flag for async operations
+    private val isSessionActive = atomic(false)
+
     private val imageProcessingExecutor = Executors.newFixedThreadPool(2)
 
     fun bindCamera(previewView: PreviewView, onCameraReady: () -> Unit = {}) {
         Log.d("Folar", "==> bindCamera() called for deviceType: $cameraDeviceType")
-        this.previewView = previewView
+        this.previewView = previewView // Capture previewView for re-binding
 
         memoryManager.initialize(context)
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
+            // Async safety check: If session was stopped while waiting for future, abort.
+            if (!isSessionActive.value) {
+                Log.w("Folar", "==> bindCamera aborted: Session is no longer active")
+                return@addListener
+            }
+
             try {
                 cameraProvider = cameraProviderFuture.get()
                 cameraProvider?.unbindAll()
                 Log.d("Folar", "==> Unbind all existing cameras")
+
+                // Double check after unbind
+                if (!isSessionActive.value) return@addListener
 
                 val resolutionSelector = createResolutionSelector()
 
@@ -129,6 +138,61 @@ class CameraController(
     }
 
     /**
+     * Re-binds the camera using the existing previewView.
+     * Useful when configuration changes (aspect ratio, resolution, etc.) require a full re-bind.
+     */
+    private fun restartCamera() {
+        val view = previewView
+        if (view != null && isSessionActive.value) {
+            Log.d("Folar", "Restarting camera session with new config...")
+            bindCamera(view)
+        } else {
+            Log.w("Folar", "Cannot restart camera: previewView is null or session inactive")
+        }
+    }
+
+    fun setAspectRatio(ratio: FolarAspectRatio) {
+        if (this.aspectRatio != ratio) {
+            this.aspectRatio = ratio
+            restartCamera()
+        }
+    }
+
+    fun setResolution(width: Int, height: Int) {
+        val newRes = Pair(width, height)
+        if (this.targetResolution != newRes) {
+            this.targetResolution = newRes
+            restartCamera()
+        }
+    }
+
+    fun setCameraLens(lens: CameraLens) {
+        if (this.cameraLens != lens) {
+            this.cameraLens = lens
+            restartCamera()
+        }
+    }
+
+    fun setPreferredCameraDeviceType(type: CameraDeviceType) {
+        if (this.cameraDeviceType != type) {
+            this.cameraDeviceType = type
+            restartCamera()
+        }
+    }
+
+    fun setImageFormat(format: ImageFormat) {
+        this.imageFormat = format
+    }
+
+    fun setQualityPrioritization(quality: QualityPrioritization) {
+        this.qualityPriority = quality
+    }
+
+    fun setDirectory(dir: Directory) {
+        this.directory = dir
+    }
+
+    /**
      * Create a resolution selector based on memory conditions
      */
     private fun createResolutionSelector(): ResolutionSelector {
@@ -160,69 +224,14 @@ class CameraController(
     /**
      * Creates a camera selector based on lens facing and device type.
      */
-    @OptIn(ExperimentalCamera2Interop::class)
     private fun createCameraSelector(): CameraSelector {
         val builder = CameraSelector.Builder()
             .requireLensFacing(cameraLens.toCameraXLensFacing())
 
-        when (cameraDeviceType) {
-            CameraDeviceType.WIDE_ANGLE, CameraDeviceType.DEFAULT -> {
-                // Default camera, no filter needed
-            }
-            CameraDeviceType.TELEPHOTO -> {
-                builder.addCameraFilter { cameraInfos ->
-                    cameraInfos.filter { cameraInfo ->
-                        try {
-                            val camera2Info = Camera2CameraInfo.from(cameraInfo)
-                            val focalLengths = camera2Info.getCameraCharacteristic(
-                                CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
-                            )?.toList() ?: emptyList()
-                            focalLengths.any { it > 4.0f }
-                        } catch (e: Exception) {
-                            false
-                        }
-                    }.ifEmpty { 
-                        Log.w("Folar", "Telephoto camera not available, using default")
-                        cameraInfos.take(1)
-                    }
-                }
-            }
-            CameraDeviceType.ULTRA_WIDE -> {
-                builder.addCameraFilter { cameraInfos ->
-                    cameraInfos.filter { cameraInfo ->
-                        try {
-                            val camera2Info = Camera2CameraInfo.from(cameraInfo)
-                            val focalLengths = camera2Info.getCameraCharacteristic(
-                                CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
-                            )?.toList() ?: emptyList()
-                            focalLengths.any { it < 2.5f }
-                        } catch (e: Exception) {
-                            false
-                        }
-                    }.ifEmpty {
-                        Log.w("Folar", "Ultra-wide camera not available, using default")
-                        cameraInfos.take(1)
-                    }
-                }
-            }
-            CameraDeviceType.MACRO -> {
-                builder.addCameraFilter { cameraInfos ->
-                    cameraInfos.filter { cameraInfo ->
-                        try {
-                            val camera2Info = Camera2CameraInfo.from(cameraInfo)
-                            val minFocusDistance = camera2Info.getCameraCharacteristic(
-                                CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE
-                            ) ?: 0f
-                            minFocusDistance > 0f && minFocusDistance < 0.2f
-                        } catch (e: Exception) {
-                            false
-                        }
-                    }.ifEmpty {
-                        Log.w("Folar", "Macro camera not available, using default")
-                        cameraInfos.take(1)
-                    }
-                }
-            }
+        // Logic for specific device types is simplified as we removed Camera2 interop
+        // We just log a warning if a specific non-standard type is requested
+        if (cameraDeviceType != CameraDeviceType.DEFAULT && cameraDeviceType != CameraDeviceType.WIDE_ANGLE) {
+             Log.w("Folar", "CameraDeviceType $cameraDeviceType requested but using default lens facing due to Camera2 removal.")
         }
         
         return builder.build()
@@ -242,24 +251,37 @@ class CameraController(
     }
 
     private fun configureVideoCapture(resolutionSelector: ResolutionSelector) {
+        // Enforce aspect ratio in video recording by setting the strategy on Recorder.Builder
         val recorder = Recorder.Builder()
+            .setAspectRatioStrategy(aspectRatio.toCameraXAspectRatioStrategy()) // <-- Fix: Apply aspect ratio strategy here
             .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
             .build()
         videoCapture = VideoCapture.withOutput(recorder)
     }
 
     fun updateImageAnalyzer() {
-        camera?.let {
-            cameraProvider?.unbind(imageAnalyzer)
-            imageAnalyzer?.let { analyzer ->
-                cameraProvider?.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.Builder().requireLensFacing(cameraLens.toCameraXLensFacing())
-                        .build(),
-                    analyzer
-                )
+        // If camera is already bound, we need to rebind to include the new analyzer
+        if (camera != null && cameraProvider != null) {
+            try {
+                // Unbind existing analyzer if any
+                cameraProvider?.unbind(imageAnalyzer)
+
+                imageAnalyzer?.let { analyzer ->
+                    cameraProvider?.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.Builder().requireLensFacing(cameraLens.toCameraXLensFacing()).build(),
+                        analyzer
+                    )
+                }
+            } catch (e: Exception) {
+                 Log.e("Folar", "Failed to update image analyzer: ${e.message}")
             }
-        } ?: throw InvalidConfigurationException("Camera not initialized.")
+        } else {
+            // Camera not ready yet.
+            // The analyzer is already assigned to the field `imageAnalyzer`.
+            // It will be bound when bindCamera() executes.
+            Log.d("Folar", "Camera not initialized yet, analyzer will be bound later.")
+        }
     }
 
     @Deprecated(
@@ -469,8 +491,6 @@ class CameraController(
         output: ImageCapture.OutputFileResults,
         quality: Int
     ): ByteArray? {
-        // Implementation remains same as before (omitted for brevity in prompt context but included in file)
-        // Re-using the same logic...
          return try {
             output.savedUri?.let { uri ->
                 val tempFile = createTempFile("temp_image", ".jpg")
@@ -679,12 +699,14 @@ class CameraController(
     }
 
     fun startSession() {
+        isSessionActive.value = true
         memoryManager.updateMemoryStatus()
         memoryManager.clearBufferPools()
         initializeControllerPlugins()
     }
 
     fun stopSession() {
+        isSessionActive.value = false
         cameraProvider?.unbindAll()
         memoryManager.clearBufferPools()
     }
@@ -755,6 +777,7 @@ class CameraController(
     }
 
     fun cleanup() {
+        isSessionActive.value = false
         imageProcessingExecutor.shutdown()
         memoryManager.clearBufferPools()
     }

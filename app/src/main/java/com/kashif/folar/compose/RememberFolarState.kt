@@ -24,7 +24,8 @@ fun rememberFolarState(
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     
-    val stateHolder = remember(config) {
+    // Remember StateHolder once, not keyed by config to prevent full recreation loop
+    val stateHolder = remember {
         FolarStateHolder(
             cameraConfiguration = config,
             controllerFactory = {
@@ -50,12 +51,17 @@ fun rememberFolarState(
         )
     }
     
-    // Initialize controller and plugins
+    // Initial setup
     LaunchedEffect(stateHolder) {
         setupPlugins(stateHolder)
         stateHolder.initialize()
     }
     
+    // Handle configuration updates dynamically without recreating StateHolder/Controller
+    LaunchedEffect(config) {
+        stateHolder.updateConfiguration(config)
+    }
+
     // Cleanup on disposal
     DisposableEffect(stateHolder) {
         onDispose {

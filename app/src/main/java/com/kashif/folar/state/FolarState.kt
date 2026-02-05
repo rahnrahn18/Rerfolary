@@ -129,7 +129,6 @@ data class CameraUIState(
  *         when (event) {
  *             is FolarEvent.ImageCaptured -> showSuccessToast(event.result)
  *             is FolarEvent.CaptureFailed -> showErrorDialog(event.exception)
- *             is FolarEvent.QRCodeScanned -> navigateToDetails(event.qrCode)
  *             else -> {}
  *         }
  *     }
@@ -159,14 +158,6 @@ sealed class FolarEvent {
      */
     @Immutable
     data class CaptureFailed(val exception: Exception) : FolarEvent()
-    
-    /**
-     * QR code detected and scanned.
-     * 
-     * @property qrCode The decoded QR code content.
-     */
-    @Immutable
-    data class QRCodeScanned(val qrCode: String) : FolarEvent()
     
     /**
      * OCR text recognition completed.

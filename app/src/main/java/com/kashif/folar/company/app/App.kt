@@ -48,8 +48,6 @@ import com.kashif.folar.state.CameraConfiguration
 import com.kashif.imagesaverplugin.ImageSaverConfig
 import com.kashif.imagesaverplugin.ImageSaverPlugin
 import com.kashif.imagesaverplugin.rememberImageSaverPlugin
-import com.kashif.qrscannerplugin.QRScannerPlugin
-import com.kashif.qrscannerplugin.rememberQRScannerPlugin
 import com.kashif.ocrPlugin.OcrPlugin
 import com.kashif.ocrPlugin.rememberOcrPlugin
 // Utils
@@ -62,8 +60,6 @@ import com.kashif.folar.company.app.theme.AppTheme
 fun App() = AppTheme {
     val permissions: Permissions = providePermissions()
     val snackbarHostState = remember { SnackbarHostState() }
-    // Default ke API baru (Compose)
-    var useNewApi by remember { mutableStateOf(true) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -81,7 +77,6 @@ fun App() = AppTheme {
                 customFolderName = "Folar"
             )
         )
-        val qrScannerPlugin = rememberQRScannerPlugin()
         val ocrPlugin = rememberOcrPlugin()
 
         PermissionsHandler(
@@ -91,22 +86,10 @@ fun App() = AppTheme {
         )
 
         if (cameraPermissionState.value && storagePermissionState.value) {
-            if (useNewApi) {
-                CameraContent(
-                    imageSaverPlugin = imageSaverPlugin,
-                    qrScannerPlugin = qrScannerPlugin,
-                    ocrPlugin = ocrPlugin,
-                    onToggleApi = { useNewApi = !useNewApi }
-                )
-            } else {
-                // Pastikan LegacyAppContent ada atau buat dummy jika belum ada
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Legacy Content Placeholder")
-                    FilledTonalButton(onClick = { useNewApi = !useNewApi }) {
-                        Text("Switch Back")
-                    }
-                }
-            }
+            CameraContent(
+                imageSaverPlugin = imageSaverPlugin,
+                ocrPlugin = ocrPlugin
+            )
         }
     }
 }
@@ -136,28 +119,21 @@ private fun PermissionsHandler(
 @Composable
 private fun CameraContent(
     imageSaverPlugin: ImageSaverPlugin,
-    qrScannerPlugin: QRScannerPlugin,
-    ocrPlugin: OcrPlugin,
-    onToggleApi: () -> Unit = {}
+    ocrPlugin: OcrPlugin
 ) {
     var aspectRatio by remember { mutableStateOf(AspectRatio.RATIO_4_3) }
     var resolution by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var imageFormat by remember { mutableStateOf(ImageFormat.JPEG) }
     var qualityPrioritization by remember { mutableStateOf(QualityPrioritization.BALANCED) }
     var cameraDeviceType by remember { mutableStateOf(CameraDeviceType.WIDE_ANGLE) }
+    // Hoisted state for Camera Lens
+    var cameraLens by remember { mutableStateOf(CameraLens.BACK) }
+
+    // configVersion usage is deprecated with new StateHolder logic but kept for now as state trigger
     var configVersion by remember { mutableStateOf(0) }
 
     // Plugin output states
-    var detectedQR by remember { mutableStateOf<com.kashif.qrscannerplugin.QRResult?>(null) }
     var recognizedText by remember { mutableStateOf<String?>(null) }
-
-    // Collect plugin outputs
-    LaunchedEffect(qrScannerPlugin) {
-        qrScannerPlugin.getQrCodeFlow().collect { qr ->
-            detectedQR = qr
-            println("QR Code detected: ${qr.text}")
-        }
-    }
 
     LaunchedEffect(ocrPlugin) {
         ocrPlugin.ocrFlow.collect { text ->
@@ -168,7 +144,7 @@ private fun CameraContent(
 
     val cameraState by rememberFolarState(
         config = CameraConfiguration(
-            cameraLens = CameraLens.BACK,
+            cameraLens = cameraLens, // Use hoisted state
             flashMode = FlashMode.OFF,
             imageFormat = imageFormat,
             directory = Directory.PICTURES,
@@ -180,7 +156,6 @@ private fun CameraContent(
         ),
         setupPlugins = { stateHolder ->
             stateHolder.attachPlugin(imageSaverPlugin)
-            stateHolder.attachPlugin(qrScannerPlugin)
             stateHolder.attachPlugin(ocrPlugin)
         }
     )
@@ -239,15 +214,14 @@ private fun CameraContent(
         InstagramCameraScreen(
             cameraState = state,
             imageSaverPlugin = imageSaverPlugin,
-            qrScannerPlugin = qrScannerPlugin,
             ocrPlugin = ocrPlugin,
-            detectedQR = detectedQR, // Now type QRResult?
             recognizedText = recognizedText,
             aspectRatio = aspectRatio,
             resolution = resolution,
             imageFormat = imageFormat,
             qualityPrioritization = qualityPrioritization,
             cameraDeviceType = cameraDeviceType,
+            cameraLens = cameraLens, // Pass hoisted state
             onAspectRatioChange = { ratio: AspectRatio ->
                 aspectRatio = ratio
                 configVersion++
@@ -268,7 +242,10 @@ private fun CameraContent(
                 cameraDeviceType = device
                 configVersion++
             },
-            onToggleApi = onToggleApi
+            onCameraLensChange = { lens: CameraLens ->
+                cameraLens = lens
+                configVersion++
+            }
         )
     }
 }

@@ -58,7 +58,10 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation(libs.androidx.activityCompose)
 
-    implementation(platform("androidx.compose:compose-bom:2024.02.01"))
+    // Upgrade BOM to 2024.10.01 to ensure Material3 1.3.0+ (supports ripple() API)
+    // This fixes the "Unresolved reference: ripple" build error and the "IndicationNodeFactory" runtime crash.
+    implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -69,7 +72,9 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.extensions)
-    implementation("androidx.camera:camera-video:1.3.1")
+
+    // Use version from TOML to ensure sync with camera-core (1.5.1)
+    implementation(libs.camera.video)
 
     implementation(libs.androidx.startup.runtime)
     implementation(libs.kotlinx.coroutines.android)
@@ -80,6 +85,6 @@ dependencies {
     implementation("com.composables:icons-lucide-cmp:2.2.1")
 
     // Plugins dependencies
-    implementation(libs.core) // Zxing
+    // implementation(libs.core) // Removed QR Zxing
     implementation(libs.text.recognition) // MLKit
 }
