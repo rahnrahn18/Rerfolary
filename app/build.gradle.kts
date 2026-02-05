@@ -58,7 +58,10 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation(libs.androidx.activityCompose)
 
-    implementation(platform("androidx.compose:compose-bom:2024.02.01"))
+    // Upgrade BOM to 2024.10.01 to ensure Material3 1.3.0+ (supports ripple() API)
+    // This fixes the "Unresolved reference: ripple" build error and the "IndicationNodeFactory" runtime crash.
+    implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
