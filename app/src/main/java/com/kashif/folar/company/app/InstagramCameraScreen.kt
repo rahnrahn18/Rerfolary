@@ -533,42 +533,91 @@ fun TopControlBar(
     onQualityToggle: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = 48.dp, start = 16.dp, end = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // 1. Settings
-        IconButton(onClick = onSettingsClick) {
-            Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
-        }
+    if (currentMode == CameraMode.PHOTO) {
+        // Photo Mode: Settings (Left), Aspect Ratio (Center), Flash (Right)
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(top = 48.dp, start = 16.dp, end = 16.dp)
+        ) {
+            // Left
+            IconButton(
+                onClick = onSettingsClick,
+                modifier = Modifier.align(Alignment.CenterStart)
+            ) {
+                Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
+            }
 
-        // 2. Aspect Ratio (Visible in Both Modes as requested)
-        val ratioText = when(aspectRatio) {
-            AspectRatio.RATIO_1_1 -> "1:1"
-            AspectRatio.RATIO_4_5 -> "4:5"
-            AspectRatio.RATIO_3_4 -> "3:4"
-            AspectRatio.RATIO_9_16 -> "9:16"
-            AspectRatio.RATIO_4_3 -> "3:4"
-            AspectRatio.RATIO_16_9 -> "9:16"
-        }
-        Text(
-            text = ratioText,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .border(1.dp, Color.White, CircleShape)
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-                .clickable { onAspectRatioToggle() }
-        )
+            // Center: Aspect Ratio
+            val ratioText = when(aspectRatio) {
+                AspectRatio.RATIO_1_1 -> "1:1"
+                AspectRatio.RATIO_4_5 -> "4:5"
+                AspectRatio.RATIO_3_4 -> "3:4"
+                AspectRatio.RATIO_9_16 -> "9:16"
+                AspectRatio.RATIO_4_3 -> "3:4"
+                AspectRatio.RATIO_16_9 -> "9:16"
+            }
+            Text(
+                text = ratioText,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .border(1.dp, Color.White, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .clickable { onAspectRatioToggle() }
+            )
 
-        // 3. Video Quality (Only in Video Mode)
-        // If in Photo mode, we show a Spacer or Invisible element to maintain spacing if needed,
-        // or just let SpaceBetween handle it.
-        // To strictly "Center" the AspectRatio, we might need a custom Layout, but SpaceBetween with 4 items works well.
-        if (currentMode == CameraMode.VIDEO) {
+            // Right
+            IconButton(
+                onClick = onFlashToggle,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                Icon(
+                    imageVector = when(flashMode) {
+                        FlashMode.ON -> Lucide.Flashlight
+                        FlashMode.OFF -> Lucide.FlashlightOff
+                        FlashMode.AUTO -> Lucide.Flashlight
+                    },
+                    contentDescription = "Flash",
+                    tint = Color.White
+                )
+            }
+        }
+    } else {
+        // Video Mode: Evenly Spaced Row
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(top = 48.dp, start = 16.dp, end = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 1. Settings
+            IconButton(onClick = onSettingsClick) {
+                Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
+            }
+
+            // 2. Aspect Ratio
+            val ratioText = when(aspectRatio) {
+                AspectRatio.RATIO_1_1 -> "1:1"
+                AspectRatio.RATIO_4_5 -> "4:5"
+                AspectRatio.RATIO_3_4 -> "3:4"
+                AspectRatio.RATIO_9_16 -> "9:16"
+                AspectRatio.RATIO_4_3 -> "3:4"
+                AspectRatio.RATIO_16_9 -> "9:16"
+            }
+            Text(
+                text = ratioText,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .border(1.dp, Color.White, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .clickable { onAspectRatioToggle() }
+            )
+
+            // 3. Video Quality
             val qualityText = if (isFHDQuality) "FHD" else "HD"
             val borderColor = if (isFHDQuality) Color.Yellow else Color.White
             val textColor = if (isFHDQuality) Color.Yellow else Color.White
@@ -582,22 +631,19 @@ fun TopControlBar(
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .clickable { onQualityToggle() }
             )
-        } else {
-             // Placeholder to balance the row if needed, or just let it be 3 items
-             Spacer(modifier = Modifier.size(48.dp))
-        }
 
-        // 4. Flash
-        IconButton(onClick = onFlashToggle) {
-            Icon(
-                imageVector = when(flashMode) {
-                    FlashMode.ON -> Lucide.Flashlight
-                    FlashMode.OFF -> Lucide.FlashlightOff
-                    FlashMode.AUTO -> Lucide.Flashlight
-                },
-                contentDescription = "Flash",
-                tint = Color.White
-            )
+            // 4. Flash
+            IconButton(onClick = onFlashToggle) {
+                Icon(
+                    imageVector = when(flashMode) {
+                        FlashMode.ON -> Lucide.Flashlight
+                        FlashMode.OFF -> Lucide.FlashlightOff
+                        FlashMode.AUTO -> Lucide.Flashlight
+                    },
+                    contentDescription = "Flash",
+                    tint = Color.White
+                )
+            }
         }
     }
 }

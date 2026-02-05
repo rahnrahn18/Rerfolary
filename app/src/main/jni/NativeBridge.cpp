@@ -113,7 +113,7 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     }
     LOGI("Writer opened successfully with codec: %d", fourcc);
 
-    // --- Step 1: Analyze Motion ---
+    // --- Step 1: Analyze Motion (Feature Matching Pipeline) ---
     Mat prev, prev_gray;
     cap >> prev;
     if (prev.empty()) {
@@ -127,6 +127,12 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     vector<TransformParam> transforms;
     transforms.push_back({0, 0, 0}); // Frame 0
 
+    // Feature Detector (ORB is fast and robust)
+    Ptr<Feature2D> detector = ORB::create(2000); // Detect 2000 features per frame
+    vector<KeyPoint> prev_kps;
+    Mat prev_desc;
+    detector->detectAndCompute(prev_gray, noArray(), prev_kps, prev_desc);
+
     Mat curr, curr_gray;
 
     for (int i = 1; i < n_frames; i++) {
@@ -138,26 +144,25 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
 
         cvtColor(curr, curr_gray, COLOR_BGR2GRAY);
 
-        vector<Point2f> prev_pts, curr_pts;
-        // High quality features for better tracking
-        goodFeaturesToTrack(prev_gray, prev_pts, 200, 0.01, 30);
+        vector<KeyPoint> curr_kps;
+        Mat curr_desc;
+        detector->detectAndCompute(curr_gray, noArray(), curr_kps, curr_desc);
 
-        if (prev_pts.size() > 0) {
-            vector<uchar> status;
-            vector<float> err;
-            calcOpticalFlowPyrLK(prev_gray, curr_gray, prev_pts, curr_pts, status, err);
+        if (prev_kps.size() > 10 && curr_kps.size() > 10 && !prev_desc.empty() && !curr_desc.empty()) {
+            BFMatcher matcher(NORM_HAMMING, true); // Cross-check
+            vector<DMatch> matches;
+            matcher.match(prev_desc, curr_desc, matches);
 
+            // Filter good matches
             vector<Point2f> p_prev, p_curr;
-            for(size_t k=0; k < status.size(); k++) {
-                if(status[k]) {
-                    p_prev.push_back(prev_pts[k]);
-                    p_curr.push_back(curr_pts[k]);
-                }
+            for(auto& m : matches) {
+                p_prev.push_back(prev_kps[m.queryIdx].pt);
+                p_curr.push_back(curr_kps[m.trainIdx].pt);
             }
 
-            if (p_prev.size() > 5) {
-                // Use RANSAC to reject outliers (moving objects) and find global motion
-                Mat T = estimateAffinePartial2D(p_prev, p_curr, noArray(), RANSAC, 3.0);
+            if (p_prev.size() > 10) {
+                // RANSAC Global Motion Estimation
+                Mat T = estimateAffinePartial2D(p_prev, p_curr, noArray(), RANSAC, 5.0);
 
                 if (!T.empty()) {
                     double dx = T.at<double>(0, 2);
@@ -168,17 +173,16 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
                     transforms.push_back({0, 0, 0});
                 }
             } else {
-                // Not enough points found
                 transforms.push_back({0, 0, 0});
             }
         } else {
-             // No features to track
             transforms.push_back({0, 0, 0});
         }
 
-        curr_gray.copyTo(prev_gray);
+        prev_kps = curr_kps;
+        curr_desc.copyTo(prev_desc);
 
-        if (i % 30 == 0) LOGI("Analyzing frame %d/%d", i, n_frames);
+        if (i % 30 == 0) LOGI("Analyzing frame %d/%d (ORB+RANSAC)", i, n_frames);
     }
 
     // --- Step 2: Compute Trajectory ---
@@ -194,7 +198,7 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
 
     // --- Step 3: Smooth Trajectory (Gaussian / Sliding Window) ---
     vector<Trajectory> smoothed_trajectory;
-    int radius = 60; // Increased radius for "very smooth" results (aggressive smoothing)
+    int radius = 90; // VERY Aggressive Smoothing (~3 seconds buffer)
 
     for(size_t i=0; i < trajectory.size(); i++) {
         double sum_x = 0, sum_y = 0, sum_a = 0;
@@ -203,7 +207,7 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         for(int j = -radius; j <= radius; j++) {
             if(i+j >= 0 && i+j < trajectory.size()) {
                 // Gaussian weight
-                double weight = exp(-(j*j) / (2.0 * (radius/2.0) * (radius/2.0)));
+                double weight = exp(-(j*j) / (2.0 * (radius/3.0) * (radius/3.0))); // Wider bell curve
 
                 sum_x += trajectory[i+j].x * weight;
                 sum_y += trajectory[i+j].y * weight;
