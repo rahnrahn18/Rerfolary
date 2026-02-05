@@ -18,43 +18,6 @@ import kotlinx.coroutines.launch
  * Pure Kotlin state holder for camera operations.
  * This class is the reactive bridge between platform-specific [CameraController] 
  * and Compose UI layer.
- * 
- * **Architecture Layer:** Layer 2 (State Holder)
- * - No Compose dependencies (testable in pure Kotlin)
- * - Manages [CameraController] lifecycle
- * - Exposes reactive state via [StateFlow]
- * - Emits one-shot events via [SharedFlow]
- * - Manages plugin lifecycle
- * 
- * **Thread Safety:** All public methods are thread-safe.
- * **Lifecycle:** Initialize with [initialize()], cleanup with [shutdown()].
- * 
- * @param cameraConfiguration Initial camera configuration.
- * @param controllerFactory Factory function to create platform-specific [CameraController].
- * @param coroutineScope CoroutineScope for managing async operations.
- * 
- * @example
- * ```kotlin
- * val stateHolder = FolarStateHolder(
- *     cameraConfiguration = CameraConfiguration(),
- *     controllerFactory = { /* create controller */ }
- * )
- * 
- * // Initialize
- * stateHolder.initialize()
- * 
- * // Observe state
- * stateHolder.cameraState.collect { state ->
- *     when (state) {
- *         is FolarState.Ready -> /* use controller */
- *         is FolarState.Error -> /* handle error */
- *         FolarState.Initializing -> /* show loading */
- *     }
- * }
- * 
- * // Cleanup
- * stateHolder.shutdown()
- * ```
  */
 @Stable
 class FolarStateHolder(
@@ -67,47 +30,14 @@ class FolarStateHolder(
     // ═══════════════════════════════════════════════════════════════
     
     private val _cameraState = MutableStateFlow<FolarState>(FolarState.Initializing)
-    
-    /**
-     * Observable camera lifecycle state.
-     * Emits [FolarState.Initializing], [FolarState.Ready], or [FolarState.Error].
-     */
     val cameraState: StateFlow<FolarState> = _cameraState.asStateFlow()
     
     private val _uiState = MutableStateFlow(CameraUIState())
-    
-    /**
-     * Observable UI state containing camera properties.
-     * Updates automatically when camera properties change.
-     */
     val uiState: StateFlow<CameraUIState> = _uiState.asStateFlow()
     
     private val _events = MutableSharedFlow<FolarEvent>()
-    
-    /**
-     * One-shot events emitted by the camera system.
-     * Events are not persisted - collect to handle them.
-     */
     val events: SharedFlow<FolarEvent> = _events.asSharedFlow()
     
-    /**
-     * CoroutineScope for plugins to launch their operations.
-     * This scope is tied to the StateHolder's lifecycle - it cancels when StateHolder shuts down.
-     * Plugins should use this scope to launch their auto-activation observers.
-     * 
-     * @example
-     * ```kotlin
-     * override fun onAttach(stateHolder: FolarStateHolder) {
-     *     stateHolder.pluginScope.launch {
-     *         stateHolder.cameraState
-     *             .filterIsInstance<FolarState.Ready>()
-     *             .collect { ready ->
-     *                 startScanning(ready.controller)
-     *             }
-     *     }
-     * }
-     * ```
-     */
     val pluginScope: CoroutineScope = coroutineScope
     
     // ═══════════════════════════════════════════════════════════════
@@ -125,8 +55,6 @@ class FolarStateHolder(
     /**
      * Initializes the camera controller and starts the session.
      * Safe to call multiple times - subsequent calls are no-ops.
-     * 
-     * @throws Exception if controller creation fails.
      */
     suspend fun initialize() {
         if (isInitialized) return
@@ -168,6 +96,39 @@ class FolarStateHolder(
     }
     
     /**
+     * Updates the camera configuration dynamically without full re-initialization where possible.
+     */
+    fun updateConfiguration(config: CameraConfiguration) {
+        val currentController = controller ?: return
+
+        // Update Aspect Ratio
+        currentController.setAspectRatio(config.aspectRatio)
+
+        // Update Resolution
+        if (config.targetResolution != null) {
+            currentController.setResolution(config.targetResolution.first, config.targetResolution.second)
+        }
+
+        // Update Lens
+        currentController.setCameraLens(config.cameraLens)
+
+        // Update Flash/Torch
+        currentController.setFlashMode(config.flashMode)
+        currentController.setTorchMode(config.torchMode)
+
+        // Update Device Type
+        currentController.setPreferredCameraDeviceType(config.cameraDeviceType)
+
+        // Update other params
+        currentController.setImageFormat(config.imageFormat)
+        currentController.setQualityPrioritization(config.qualityPrioritization)
+        currentController.setDirectory(config.directory)
+
+        // Sync UI state
+        updateUIStateFromController(currentController)
+    }
+
+    /**
      * Shuts down the camera controller and releases resources.
      * Safe to call multiple times.
      */
@@ -190,86 +151,34 @@ class FolarStateHolder(
             _cameraState.value = FolarState.Initializing
             
         } catch (e: Exception) {
-            // Log error but don't throw during shutdown
             _uiState.value = _uiState.value.copy(
                 lastError = "Shutdown error: ${e.message}"
             )
         }
     }
     
-    /**
-     * Suspends until camera becomes READY, then returns the controller.
-     * Useful for plugins that prefer to wait rather than observe streams.
-     * 
-     * Returns null if camera encounters an error before becoming ready.
-     * 
-     * @example
-     * ```kotlin
-     * override fun onAttach(stateHolder: FolarStateHolder) {
-     *     stateHolder.pluginScope.launch {
-     *         val controller = stateHolder.getReadyCameraController()
-     *         controller?.let { setupPlugin(it) }
-     *     }
-     * }
-     * ```
-     */
     suspend fun getReadyCameraController(): CameraController? {
         return cameraState
             .filterIsInstance<FolarState.Ready>()
-            .first()  // Suspends until Ready state, emits once
+            .first()
             .controller
     }
     
-    // ═══════════════════════════════════════════════════════════════
-    // Plugin Management
-    // ═══════════════════════════════════════════════════════════════
-    
-    /**
-     * Attaches a plugin to the camera controller.
-     * If controller is already initialized, plugin is attached immediately.
-     * Otherwise, plugin will be attached during initialization.
-     * 
-     * @param plugin The [FolarPlugin] to attach.
-     */
     fun attachPlugin(plugin: FolarPlugin) {
         attachedPlugins.add(plugin)
-        
         if (isInitialized) {
             plugin.onAttach(this)
         }
     }
     
-    /**
-     * Detaches a plugin from the camera controller.
-     * 
-     * @param plugin The [FolarPlugin] to detach.
-     */
     fun detachPlugin(plugin: FolarPlugin) {
         if (attachedPlugins.remove(plugin)) {
             plugin.onDetach()
         }
     }
     
-    /**
-     * Gets the current [CameraController] instance if available.
-     * 
-     * ⚠️ **Deprecated for new plugins:** Use `getReadyCameraController()` or observe `cameraState` instead.
-     * This method returns null if camera hasn't initialized yet, causing plugins to fail.
-     * 
-     * @return The controller, or null if not initialized.
-     * @see getReadyCameraController For plugins that need to wait for readiness
-     * @see cameraState To observe camera state and auto-activate
-     */
     fun getController(): CameraController? = controller
     
-    // ═══════════════════════════════════════════════════════════════
-    // Camera Operations
-    // ═══════════════════════════════════════════════════════════════
-    
-    /**
-     * Captures an image and saves it to a file.
-     * Emits [FolarEvent.ImageCaptured] on success or [FolarEvent.CaptureFailed] on failure.
-     */
     fun captureImage() {
         val currentController = controller ?: run {
             coroutineScope.launch {
@@ -283,11 +192,8 @@ class FolarStateHolder(
         coroutineScope.launch {
             try {
                 _uiState.value = _uiState.value.copy(isCapturing = true)
-                
                 val result = currentController.takePictureToFile()
-                
                 _events.emit(FolarEvent.ImageCaptured(result))
-                
             } catch (e: Exception) {
                 _events.emit(FolarEvent.CaptureFailed(e))
                 _uiState.value = _uiState.value.copy(
@@ -299,103 +205,57 @@ class FolarStateHolder(
         }
     }
     
-    /**
-     * Sets the zoom level.
-     * 
-     * @param zoom Zoom ratio (1.0 = no zoom, higher values = zoomed in).
-     */
     fun setZoom(zoom: Float) {
         val currentController = controller ?: return
-        
         currentController.setZoom(zoom)
         _uiState.value = _uiState.value.copy(
             zoomLevel = currentController.getZoom()
         )
     }
     
-    /**
-     * Toggles the flash mode (OFF → AUTO → ON → OFF).
-     */
     fun toggleFlashMode() {
         val currentController = controller ?: return
-        
         currentController.toggleFlashMode()
         _uiState.value = _uiState.value.copy(
             flashMode = currentController.getFlashMode()
         )
     }
     
-    /**
-     * Sets the flash mode.
-     * 
-     * @param mode The desired flash mode.
-     */
     fun setFlashMode(mode: com.kashif.folar.enums.FlashMode) {
         val currentController = controller ?: return
-        
         currentController.setFlashMode(mode)
         _uiState.value = _uiState.value.copy(flashMode = mode)
     }
     
-    /**
-     * Toggles the torch mode (OFF → ON → OFF).
-     */
     fun toggleTorchMode() {
         val currentController = controller ?: return
-        
         currentController.toggleTorchMode()
         _uiState.value = _uiState.value.copy(
             torchMode = currentController.getTorchMode()
         )
     }
     
-    /**
-     * Sets the torch mode.
-     * 
-     * @param mode The desired torch mode.
-     */
     fun setTorchMode(mode: com.kashif.folar.enums.TorchMode) {
         val currentController = controller ?: return
-        
         currentController.setTorchMode(mode)
         _uiState.value = _uiState.value.copy(torchMode = mode)
     }
     
-    /**
-     * Toggles the camera lens (FRONT ↔ BACK).
-     */
     fun toggleCameraLens() {
         val currentController = controller ?: return
-        
         currentController.toggleCameraLens()
         _uiState.value = _uiState.value.copy(
             cameraLens = currentController.getCameraLens()
         )
     }
     
-    /**
-     * Emits a custom event.
-     * Used by plugins to communicate events to the UI layer.
-     * 
-     * @param event The event to emit.
-     */
     suspend fun emitEvent(event: FolarEvent) {
         _events.emit(event)
     }
     
-    /**
-     * Updates UI state properties.
-     * Used by plugins to update camera state.
-     * 
-     * @param update Lambda to modify the current UI state.
-     */
     fun updateUIState(update: (CameraUIState) -> CameraUIState) {
         _uiState.value = update(_uiState.value)
     }
-    
-    // ═══════════════════════════════════════════════════════════════
-    // Private Helpers
-    // ═══════════════════════════════════════════════════════════════
     
     private fun updateUIStateFromController(controller: CameraController) {
         _uiState.value = CameraUIState(
@@ -413,73 +273,8 @@ class FolarStateHolder(
     }
 }
 
-/**
- * Interface that all camera plugins must implement.
- * 
- * Plugins extend camera functionality (QR scanning, OCR, face detection, etc.).
- * The StateHolder manages plugin lifecycle automatically.
- * 
- * **Auto-Activation Pattern (Recommended):**
- * Plugins observe camera state and self-activate when Ready.
- * 
- * @example
- * ```kotlin
- * class QRScannerPlugin : FolarPlugin {
- *     private var scanningJob: Job? = null
- *     
- *     override fun onAttach(stateHolder: FolarStateHolder) {
- *         // Self-activate when camera becomes Ready
- *         scanningJob = stateHolder.pluginScope.launch {
- *             stateHolder.cameraState
- *                 .filterIsInstance<FolarState.Ready>()
- *                 .collect { ready ->
- *                     startScanning(ready.controller)
- *                 }
- *         }
- *     }
- *     
- *     override fun onDetach() {
- *         scanningJob?.cancel()
- *     }
- * }
- * ```
- * 
- * **Alternative Pattern (Suspend Until Ready):**
- * For simpler plugins, wait for camera ready before setting up.
- * 
- * @example
- * ```kotlin
- * class SimpleSaverPlugin : FolarPlugin {
- *     override fun onAttach(stateHolder: FolarStateHolder) {
- *         stateHolder.pluginScope.launch {
- *             val controller = stateHolder.getReadyCameraController()
- *             controller?.setupSaving()
- *         }
- *     }
- *     
- *     override fun onDetach() {}
- * }
- * ```
- *     
- *     private suspend fun onQRCodeDetected(qrCode: String) {
- *         stateHolder?.emitEvent(FolarEvent.QRCodeScanned(qrCode))
- *     }
- * }
- * ```
- */
 @Stable
 interface FolarPlugin {
-    /**
-     * Called when the plugin is attached to a camera controller.
-     * Initialize plugin resources here.
-     * 
-     * @param stateHolder The [FolarStateHolder] to interact with.
-     */
     fun onAttach(stateHolder: FolarStateHolder)
-    
-    /**
-     * Called when the plugin is detached from the camera controller.
-     * Clean up plugin resources here.
-     */
     fun onDetach()
 }

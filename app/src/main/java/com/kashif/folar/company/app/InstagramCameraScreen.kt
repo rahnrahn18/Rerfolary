@@ -113,8 +113,7 @@ fun InstagramCameraScreen(
     onResolutionChange: (Pair<Int, Int>?) -> Unit,
     onImageFormatChange: (ImageFormat) -> Unit,
     onQualityPrioritizationChange: (QualityPrioritization) -> Unit,
-    onCameraDeviceTypeChange: (CameraDeviceType) -> Unit,
-    onToggleApi: () -> Unit = {}
+    onCameraDeviceTypeChange: (CameraDeviceType) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val cameraController = cameraState.controller
@@ -250,8 +249,7 @@ fun InstagramCameraScreen(
                 }
                 onAspectRatioChange(cameraXRatio)
             },
-            onSettingsClick = { /* Open Bottom Sheet if needed */ },
-            onToggleApi = onToggleApi
+            onSettingsClick = { /* Open Bottom Sheet if needed */ }
         )
 
         // 3. Plugin Outputs (Middle Overlay) - Using AnimatedVisibility instead of if/else to avoid node destruction during measure
@@ -434,8 +432,7 @@ fun TopControlBar(
     selectedRatio: AspectRatio,
     onFlashToggle: () -> Unit,
     onRatioToggle: () -> Unit,
-    onSettingsClick: () -> Unit,
-    onToggleApi: () -> Unit
+    onSettingsClick: () -> Unit
 ) {
     Row(
         modifier = modifier
@@ -482,10 +479,8 @@ fun TopControlBar(
             }
         }
 
-        IconButton(onClick = onToggleApi) {
-             // Hidden switch logic if needed, or just an icon
-             Icon(imageVector = Lucide.ChevronLeft, contentDescription = "Back", tint = Color.White)
-        }
+        // Removed ChevronLeft / Toggle API button
+        Spacer(modifier = Modifier.size(48.dp)) // Placeholder to balance layout if needed, or just remove
     }
 }
 

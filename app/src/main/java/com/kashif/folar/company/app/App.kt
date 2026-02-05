@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -60,8 +59,6 @@ import com.kashif.folar.company.app.theme.AppTheme
 fun App() = AppTheme {
     val permissions: Permissions = providePermissions()
     val snackbarHostState = remember { SnackbarHostState() }
-    // Default ke API baru (Compose)
-    var useNewApi by remember { mutableStateOf(true) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -88,21 +85,10 @@ fun App() = AppTheme {
         )
 
         if (cameraPermissionState.value && storagePermissionState.value) {
-            if (useNewApi) {
-                CameraContent(
-                    imageSaverPlugin = imageSaverPlugin,
-                    ocrPlugin = ocrPlugin,
-                    onToggleApi = { useNewApi = !useNewApi }
-                )
-            } else {
-                // Pastikan LegacyAppContent ada atau buat dummy jika belum ada
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Legacy Content Placeholder")
-                    FilledTonalButton(onClick = { useNewApi = !useNewApi }) {
-                        Text("Switch Back")
-                    }
-                }
-            }
+            CameraContent(
+                imageSaverPlugin = imageSaverPlugin,
+                ocrPlugin = ocrPlugin
+            )
         }
     }
 }
@@ -132,14 +118,14 @@ private fun PermissionsHandler(
 @Composable
 private fun CameraContent(
     imageSaverPlugin: ImageSaverPlugin,
-    ocrPlugin: OcrPlugin,
-    onToggleApi: () -> Unit = {}
+    ocrPlugin: OcrPlugin
 ) {
     var aspectRatio by remember { mutableStateOf(AspectRatio.RATIO_4_3) }
     var resolution by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var imageFormat by remember { mutableStateOf(ImageFormat.JPEG) }
     var qualityPrioritization by remember { mutableStateOf(QualityPrioritization.BALANCED) }
     var cameraDeviceType by remember { mutableStateOf(CameraDeviceType.WIDE_ANGLE) }
+    // configVersion usage is deprecated with new StateHolder logic but kept for now as state trigger
     var configVersion by remember { mutableStateOf(0) }
 
     // Plugin output states
@@ -250,8 +236,7 @@ private fun CameraContent(
             onCameraDeviceTypeChange = { device: CameraDeviceType ->
                 cameraDeviceType = device
                 configVersion++
-            },
-            onToggleApi = onToggleApi
+            }
         )
     }
 }

@@ -74,7 +74,7 @@ class CameraController(
 
     fun bindCamera(previewView: PreviewView, onCameraReady: () -> Unit = {}) {
         Log.d("Folar", "==> bindCamera() called for deviceType: $cameraDeviceType")
-        this.previewView = previewView
+        this.previewView = previewView // Capture previewView for re-binding
 
         memoryManager.initialize(context)
 
@@ -135,6 +135,61 @@ class CameraController(
             }
 
         }, ContextCompat.getMainExecutor(context))
+    }
+
+    /**
+     * Re-binds the camera using the existing previewView.
+     * Useful when configuration changes (aspect ratio, resolution, etc.) require a full re-bind.
+     */
+    private fun restartCamera() {
+        val view = previewView
+        if (view != null && isSessionActive.value) {
+            Log.d("Folar", "Restarting camera session with new config...")
+            bindCamera(view)
+        } else {
+            Log.w("Folar", "Cannot restart camera: previewView is null or session inactive")
+        }
+    }
+
+    fun setAspectRatio(ratio: FolarAspectRatio) {
+        if (this.aspectRatio != ratio) {
+            this.aspectRatio = ratio
+            restartCamera()
+        }
+    }
+
+    fun setResolution(width: Int, height: Int) {
+        val newRes = Pair(width, height)
+        if (this.targetResolution != newRes) {
+            this.targetResolution = newRes
+            restartCamera()
+        }
+    }
+
+    fun setCameraLens(lens: CameraLens) {
+        if (this.cameraLens != lens) {
+            this.cameraLens = lens
+            restartCamera()
+        }
+    }
+
+    fun setPreferredCameraDeviceType(type: CameraDeviceType) {
+        if (this.cameraDeviceType != type) {
+            this.cameraDeviceType = type
+            restartCamera()
+        }
+    }
+
+    fun setImageFormat(format: ImageFormat) {
+        this.imageFormat = format
+    }
+
+    fun setQualityPrioritization(quality: QualityPrioritization) {
+        this.qualityPriority = quality
+    }
+
+    fun setDirectory(dir: Directory) {
+        this.directory = dir
     }
 
     /**
@@ -619,10 +674,8 @@ class CameraController(
         }
         cameraLens = if (cameraLens == CameraLens.BACK) CameraLens.FRONT else CameraLens.BACK
 
-        // Clean unbind before rebinding to avoid Surface/OpenGL conflicts
-        cameraProvider?.unbindAll()
-
-        previewView?.let { bindCamera(it) }
+        // Restart camera logic now handles unbind/bind cleanly using stored previewView
+        restartCamera()
     }
     
     fun getCameraLens(): CameraLens? {
