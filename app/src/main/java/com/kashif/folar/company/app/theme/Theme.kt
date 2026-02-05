@@ -10,12 +10,15 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.compose.foundation.LocalIndication
 
 // --- HAPUS DEFINISI WARNA DI SINI KARENA SUDAH ADA DI Color.kt ---
 // Kita langsung pakai variabel dari Color.kt (md_theme_light_...)
@@ -110,10 +113,16 @@ fun AppTheme(
         colorScheme = colorScheme,
         typography = AppTypography, 
         content = {
-            Surface(
-                color = MaterialTheme.colorScheme.background,
-                content = content
-            )
+            // Explicitly provide the new ripple implementation to fix "clickable only supports IndicationNodeFactory" crash.
+            // Material 1.7+ requires `ripple()` which returns an IndicationNodeFactory.
+            CompositionLocalProvider(
+                LocalIndication provides ripple()
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.background,
+                    content = content
+                )
+            }
         }
     )
 }
