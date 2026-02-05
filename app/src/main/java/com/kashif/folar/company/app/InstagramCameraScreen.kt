@@ -236,10 +236,22 @@ fun InstagramCameraScreen(
             modifier = Modifier.align(Alignment.TopCenter),
             flashMode = flashMode,
             currentMode = currentMode,
+            aspectRatio = aspectRatio,
             isFHDQuality = isFHDQuality,
             onFlashToggle = {
                 cameraController.toggleFlashMode()
                 flashMode = cameraController.getFlashMode() ?: FlashMode.OFF
+            },
+            onAspectRatioToggle = {
+                // Cycle: 1:1 -> 4:5 -> 3:4 -> 9:16
+                val newRatio = when(aspectRatio) {
+                    AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_5
+                    AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_3_4
+                    AspectRatio.RATIO_3_4 -> AspectRatio.RATIO_9_16
+                    AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_1_1
+                    else -> AspectRatio.RATIO_1_1
+                }
+                onAspectRatioChange(newRatio)
             },
             onQualityToggle = {
                 isFHDQuality = !isFHDQuality
@@ -465,19 +477,20 @@ fun RightControlBar(
         verticalArrangement = Arrangement.spacedBy(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Smart Stabilization Icon
+        // Smart Stabilization Icon (Small Size)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(
                 onClick = onToggleStabilization,
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(40.dp) // Reduced from 48dp
                     .background(if (isStabilizationOn) Color.Yellow else Color.Black.copy(alpha = 0.5f), CircleShape)
                     .border(1.dp, Color.White, CircleShape)
             ) {
                 Icon(
                     imageVector = Lucide.Activity,
                     contentDescription = "Stabilize",
-                    tint = if (isStabilizationOn) Color.Black else Color.White
+                    tint = if (isStabilizationOn) Color.Black else Color.White,
+                    modifier = Modifier.size(20.dp) // Smaller icon
                 )
             }
             if (isStabilizationOn) {
@@ -485,19 +498,20 @@ fun RightControlBar(
             }
         }
 
-        // Object Tracking Icon
+        // Object Tracking Icon (Small Size)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(
                 onClick = onToggleTracking,
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(40.dp) // Reduced from 48dp
                     .background(if (isTrackingOn) Color.Yellow else Color.Black.copy(alpha = 0.5f), CircleShape)
                     .border(1.dp, Color.White, CircleShape)
             ) {
                 Icon(
                     imageVector = Lucide.Scan,
                     contentDescription = "Track",
-                    tint = if (isTrackingOn) Color.Black else Color.White
+                    tint = if (isTrackingOn) Color.Black else Color.White,
+                    modifier = Modifier.size(20.dp) // Smaller icon
                 )
             }
             if (isTrackingOn) {
@@ -512,25 +526,48 @@ fun TopControlBar(
     modifier: Modifier = Modifier,
     flashMode: FlashMode,
     currentMode: CameraMode,
+    aspectRatio: AspectRatio,
     isFHDQuality: Boolean,
     onFlashToggle: () -> Unit,
+    onAspectRatioToggle: () -> Unit,
     onQualityToggle: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
-    Box(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 48.dp, start = 16.dp, end = 16.dp)
+            .padding(top = 48.dp, start = 16.dp, end = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left: Settings
-        IconButton(
-            onClick = onSettingsClick,
-            modifier = Modifier.align(Alignment.CenterStart)
-        ) {
+        // 1. Settings
+        IconButton(onClick = onSettingsClick) {
             Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
         }
 
-        // Center: Quality Toggle (Video Only) or Nothing (Photo - Aspect Ratio removed)
+        // 2. Aspect Ratio (Visible in Both Modes as requested)
+        val ratioText = when(aspectRatio) {
+            AspectRatio.RATIO_1_1 -> "1:1"
+            AspectRatio.RATIO_4_5 -> "4:5"
+            AspectRatio.RATIO_3_4 -> "3:4"
+            AspectRatio.RATIO_9_16 -> "9:16"
+            AspectRatio.RATIO_4_3 -> "3:4"
+            AspectRatio.RATIO_16_9 -> "9:16"
+        }
+        Text(
+            text = ratioText,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .border(1.dp, Color.White, CircleShape)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .clickable { onAspectRatioToggle() }
+        )
+
+        // 3. Video Quality (Only in Video Mode)
+        // If in Photo mode, we show a Spacer or Invisible element to maintain spacing if needed,
+        // or just let SpaceBetween handle it.
+        // To strictly "Center" the AspectRatio, we might need a custom Layout, but SpaceBetween with 4 items works well.
         if (currentMode == CameraMode.VIDEO) {
             val qualityText = if (isFHDQuality) "FHD" else "HD"
             val borderColor = if (isFHDQuality) Color.Yellow else Color.White
@@ -541,18 +578,17 @@ fun TopControlBar(
                 color = textColor,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .align(Alignment.Center)
                     .border(1.dp, borderColor, CircleShape)
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .clickable { onQualityToggle() }
             )
+        } else {
+             // Placeholder to balance the row if needed, or just let it be 3 items
+             Spacer(modifier = Modifier.size(48.dp))
         }
 
-        // Right: Flash (Previously Switch API was here)
-        IconButton(
-            onClick = onFlashToggle,
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
+        // 4. Flash
+        IconButton(onClick = onFlashToggle) {
             Icon(
                 imageVector = when(flashMode) {
                     FlashMode.ON -> Lucide.Flashlight

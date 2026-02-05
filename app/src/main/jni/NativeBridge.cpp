@@ -15,6 +15,7 @@
 #include <opencv2/video.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
+#include <opencv2/calib3d.hpp>
 
 #define LOG_TAG "NativeBridge"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -258,7 +259,14 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         // Apply Smart Enhancement
         applySmartEnhancement(stabilized, clahe);
 
-        writer.write(stabilized);
+        // Ensure output matches safe writer dimensions
+        if (stabilized.size() != safeSize) {
+            Mat resized;
+            resize(stabilized, resized, safeSize);
+            writer.write(resized);
+        } else {
+            writer.write(stabilized);
+        }
     }
 
     cap.release();
@@ -413,7 +421,14 @@ Java_com_kashif_folar_utils_NativeBridge_trackObjectVideo(
         // Enhance
         applySmartEnhancement(frame_out, clahe);
 
-        writer.write(frame_out);
+        // Ensure output matches safe writer dimensions
+        if (frame_out.size() != safeSize) {
+            Mat resized;
+            resize(frame_out, resized, safeSize);
+            writer.write(resized);
+        } else {
+            writer.write(frame_out);
+        }
 
         // Update tracking points
         // If points lost, re-detect around the NEW tracked position
