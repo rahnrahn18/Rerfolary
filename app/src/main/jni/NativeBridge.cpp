@@ -78,30 +78,45 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     int height = int(cap.get(CAP_PROP_FRAME_HEIGHT));
     double fps = cap.get(CAP_PROP_FPS);
 
-    // Setup Video Writer
-    int fourcc = VideoWriter::fourcc('a', 'v', 'c', '1');
-    VideoWriter writer(outputPath, fourcc, fps, Size(width, height));
+    // Ensure dimensions are even to make encoders happy
+    int safe_width = (width % 2 == 0) ? width : width - 1;
+    int safe_height = (height % 2 == 0) ? height : height - 1;
+    Size safeSize(safe_width, safe_height);
+
+    // Setup Video Writer - Try MJPG first for max compatibility
+    VideoWriter writer;
+    int fourcc;
+
+    LOGI("Attempting to open writer with MJPG...");
+    fourcc = VideoWriter::fourcc('M', 'J', 'P', 'G');
+    writer.open(outputPath, fourcc, fps, safeSize);
+
     if (!writer.isOpened()) {
+        LOGW("MJPG failed, trying mp4v...");
         fourcc = VideoWriter::fourcc('m', 'p', '4', 'v');
-        writer.open(outputPath, fourcc, fps, Size(width, height));
-        if (!writer.isOpened()) {
-            fourcc = VideoWriter::fourcc('M', 'J', 'P', 'G');
-            writer.open(outputPath, fourcc, fps, Size(width, height));
-        }
+        writer.open(outputPath, fourcc, fps, safeSize);
     }
 
     if (!writer.isOpened()) {
-         LOGE("Failed to open output writer");
+        LOGW("mp4v failed, trying avc1...");
+        fourcc = VideoWriter::fourcc('a', 'v', 'c', '1');
+        writer.open(outputPath, fourcc, fps, safeSize);
+    }
+
+    if (!writer.isOpened()) {
+         LOGE("Failed to open output writer with all codecs. Check permissions or path.");
          cap.release();
          env->ReleaseStringUTFChars(jInputPath, inputPath);
          env->ReleaseStringUTFChars(jOutputPath, outputPath);
          return;
     }
+    LOGI("Writer opened successfully with codec: %d", fourcc);
 
     // --- Step 1: Analyze Motion ---
     Mat prev, prev_gray;
     cap >> prev;
     if (prev.empty()) {
+        LOGE("First frame is empty");
         cap.release();
         writer.release();
         return;
@@ -114,7 +129,12 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     Mat curr, curr_gray;
 
     for (int i = 1; i < n_frames; i++) {
-        if (!cap.read(curr)) break;
+        bool success = cap.read(curr);
+        if (!success) {
+            LOGW("Failed to read frame %d", i);
+            break;
+        }
+
         cvtColor(curr, curr_gray, COLOR_BGR2GRAY);
 
         vector<Point2f> prev_pts, curr_pts;
@@ -147,13 +167,17 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
                     transforms.push_back({0, 0, 0});
                 }
             } else {
+                // Not enough points found
                 transforms.push_back({0, 0, 0});
             }
         } else {
+             // No features to track
             transforms.push_back({0, 0, 0});
         }
 
         curr_gray.copyTo(prev_gray);
+
+        if (i % 30 == 0) LOGI("Analyzing frame %d/%d", i, n_frames);
     }
 
     // --- Step 2: Compute Trajectory ---
@@ -280,20 +304,30 @@ Java_com_kashif_folar_utils_NativeBridge_trackObjectVideo(
     int height = int(cap.get(CAP_PROP_FRAME_HEIGHT));
     double fps = cap.get(CAP_PROP_FPS);
 
-    // Setup Video Writer
-    int fourcc = VideoWriter::fourcc('a', 'v', 'c', '1');
-    VideoWriter writer(outputPath, fourcc, fps, Size(width, height));
+    // Ensure dimensions are even
+    int safe_width = (width % 2 == 0) ? width : width - 1;
+    int safe_height = (height % 2 == 0) ? height : height - 1;
+    Size safeSize(safe_width, safe_height);
+
+    // Setup Video Writer - Try MJPG first
+    VideoWriter writer;
+    int fourcc;
+
+    LOGI("Attempting to open tracking writer with MJPG...");
+    fourcc = VideoWriter::fourcc('M', 'J', 'P', 'G');
+    writer.open(outputPath, fourcc, fps, safeSize);
+
     if (!writer.isOpened()) {
+        LOGW("MJPG failed, trying mp4v...");
         fourcc = VideoWriter::fourcc('m', 'p', '4', 'v');
-        writer.open(outputPath, fourcc, fps, Size(width, height));
-         if (!writer.isOpened()) {
-             fourcc = VideoWriter::fourcc('M', 'J', 'P', 'G');
-             writer.open(outputPath, fourcc, fps, Size(width, height));
-         }
+        writer.open(outputPath, fourcc, fps, safeSize);
     }
 
     if (!writer.isOpened()) {
+        LOGE("Failed to open tracking output writer");
         cap.release();
+        env->ReleaseStringUTFChars(jInputPath, inputPath);
+        env->ReleaseStringUTFChars(jOutputPath, outputPath);
         return;
     }
 
