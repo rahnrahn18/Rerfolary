@@ -54,7 +54,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import android.media.MediaScannerConnection
 import androidx.compose.ui.platform.LocalContext
 import com.composables.icons.lucide.Activity
 import com.composables.icons.lucide.Camera
@@ -87,17 +91,19 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import android.net.Uri
+import android.content.Context
 import android.content.Intent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import java.io.File
 
 enum class CameraMode(val label: String) {
     PHOTO("PHOTO"),
     VIDEO("VIDEO"),
-    // SCAN mode removed, integrated into Photo/Video
     TEXT("TEXT OCR")
 }
 
@@ -112,13 +118,13 @@ fun InstagramCameraScreen(
     imageFormat: ImageFormat,
     qualityPrioritization: QualityPrioritization,
     cameraDeviceType: CameraDeviceType,
-    cameraLens: CameraLens, // Added parameter
+    cameraLens: CameraLens,
     onAspectRatioChange: (AspectRatio) -> Unit,
     onResolutionChange: (Pair<Int, Int>?) -> Unit,
     onImageFormatChange: (ImageFormat) -> Unit,
     onQualityPrioritizationChange: (QualityPrioritization) -> Unit,
     onCameraDeviceTypeChange: (CameraDeviceType) -> Unit,
-    onCameraLensChange: (CameraLens) -> Unit // Added callback
+    onCameraLensChange: (CameraLens) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val cameraController = cameraState.controller
@@ -129,14 +135,12 @@ fun InstagramCameraScreen(
     var isProcessing by remember { mutableStateOf(false) }
     var processingMessage by remember { mutableStateOf("Processing...") }
     var lastCapturedImage by remember { mutableStateOf<ImageBitmap?>(null) }
+    var lastMediaUri by remember { mutableStateOf<Uri?>(null) }
     var flashMode by remember { mutableStateOf(FlashMode.OFF) }
 
     // Smart Features State
     var isSmartStabilizationOn by remember { mutableStateOf(false) }
     var isObjectTrackingOn by remember { mutableStateOf(false) }
-
-    // We use the passed aspectRatio prop for UI state to ensure sync
-    // var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_3_4) } // Removed local state
 
     // Video Quality State (HD vs FHD)
     var isFHDQuality by remember { mutableStateOf(false) }
@@ -187,48 +191,36 @@ fun InstagramCameraScreen(
             }
     ) {
 
-        // 1. Fullscreen Preview Overlay (already handled by FolarScreen under this, but we put UI on top)
-        // Note: FolarScreen renders the preview. We are just the UI overlay.
+        // 1. Fullscreen Preview Overlay
 
         // 1.5 Letterboxing Masks
-        val ratioValue = when(aspectRatio) {
-            AspectRatio.RATIO_4_3 -> 3f/4f
-            AspectRatio.RATIO_3_4 -> 3f/4f // Portrait 3:4 is physically same ratio value (0.75) for math
-            AspectRatio.RATIO_16_9 -> 9f/16f
-            AspectRatio.RATIO_1_1 -> 1f
-            AspectRatio.RATIO_9_16 -> 9f/16f
-            AspectRatio.RATIO_4_5 -> 4f/5f
-        }
+        // Disable masks in Video mode (Native Ratio)
+        if (currentMode != CameraMode.VIDEO) {
+            val ratioValue = when(aspectRatio) {
+                AspectRatio.RATIO_4_3 -> 3f/4f
+                AspectRatio.RATIO_3_4 -> 3f/4f
+                AspectRatio.RATIO_16_9 -> 9f/16f
+                AspectRatio.RATIO_1_1 -> 1f
+                AspectRatio.RATIO_9_16 -> 9f/16f
+                AspectRatio.RATIO_4_5 -> 4f/5f
+            }
 
-        // Draw black bars (Letterboxing)
-        // We show bars for everything except 9:16 which is "Full" for this context
-        if (aspectRatio != AspectRatio.RATIO_9_16) {
-             Canvas(modifier = Modifier.fillMaxSize()) {
-                 val screenW = size.width
-                 val screenH = size.height
+            // Draw black bars (Letterboxing)
+            if (aspectRatio != AspectRatio.RATIO_9_16) {
+                 Canvas(modifier = Modifier.fillMaxSize()) {
+                     val screenW = size.width
+                     val screenH = size.height
+                     val targetH = screenW / ratioValue
 
-                 // Calculate target height based on width (assuming width matches screen)
-                 // For 1:1, H = W. For 4:3, H = W / (3/4) = W * 1.33
-                 val targetH = screenW / ratioValue
-
-                 if (targetH < screenH) {
-                     val barHeight = (screenH - targetH) / 2
-
-                     // Top Bar
-                     drawRect(
-                         color = Color.Black,
-                         topLeft = Offset(0f, 0f),
-                         size = Size(screenW, barHeight)
-                     )
-
-                     // Bottom Bar
-                     drawRect(
-                         color = Color.Black,
-                         topLeft = Offset(0f, screenH - barHeight),
-                         size = Size(screenW, barHeight)
-                     )
+                     if (targetH < screenH) {
+                         val barHeight = (screenH - targetH) / 2
+                         // Top Bar
+                         drawRect(color = Color.Black, topLeft = Offset(0f, 0f), size = Size(screenW, barHeight))
+                         // Bottom Bar
+                         drawRect(color = Color.Black, topLeft = Offset(0f, screenH - barHeight), size = Size(screenW, barHeight))
+                     }
                  }
-             }
+            }
         }
 
         // 2. Top Controls
@@ -243,7 +235,6 @@ fun InstagramCameraScreen(
                 flashMode = cameraController.getFlashMode() ?: FlashMode.OFF
             },
             onAspectRatioToggle = {
-                // Cycle: 1:1 -> 4:5 -> 3:4 -> 9:16
                 val newRatio = when(aspectRatio) {
                     AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_5
                     AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_3_4
@@ -260,7 +251,7 @@ fun InstagramCameraScreen(
             onSettingsClick = { /* Open Bottom Sheet if needed */ }
         )
 
-        // 3. Plugin Outputs (Middle Overlay) - Using AnimatedVisibility instead of if/else to avoid node destruction during measure
+        // 3. Plugin Outputs
         PluginOutputs(
             modifier = Modifier.align(Alignment.Center),
             currentMode = currentMode,
@@ -284,7 +275,7 @@ fun InstagramCameraScreen(
             )
         }
 
-        // 4. Bottom Area (Gradient Background)
+        // 4. Bottom Area
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -309,22 +300,30 @@ fun InstagramCameraScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Controls Row (Gallery, Shutter, Switch)
+                // Controls Row
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Gallery (Placeholder)
-                    val context = LocalContext.current
+                    // Gallery
                     IconButton(
                         onClick = {
-                            // Try to open gallery
                             try {
+                                if (lastMediaUri != null) {
+                                    val type = context.contentResolver.getType(lastMediaUri!!) ?: "*/*"
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                         setDataAndType(lastMediaUri, type)
+                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(intent)
+                                } else {
+                                    val intent = Intent(Intent.ACTION_VIEW, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                                    context.startActivity(intent)
+                                }
+                            } catch (e: Exception) {
                                 val intent = Intent(Intent.ACTION_VIEW, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
                                 context.startActivity(intent)
-                            } catch (e: Exception) {
-                                // Fallback
                             }
                         },
                         modifier = Modifier
@@ -345,23 +344,27 @@ fun InstagramCameraScreen(
                             when(currentMode) {
                                 CameraMode.PHOTO -> {
                                     scope.launch {
-                                        handlePhotoCapture(cameraController, imageSaverPlugin, aspectRatio) { bmp ->
+                                        handlePhotoCapture(context, cameraController, imageSaverPlugin, aspectRatio) { bmp, uri ->
                                             lastCapturedImage = bmp
+                                            lastMediaUri = uri
                                         }
                                     }
                                 }
                                 CameraMode.VIDEO -> {
                                     if (isRecording) {
-                                        // Stop Recording
                                         isRecording = false
                                         cameraController.stopRecording()
-                                        // Processing is triggered in the callback passed to startRecording
                                     } else {
-                                        // Start Recording
                                         isRecording = true
                                         cameraController.startRecording(
                                             onVideoSaved = { videoFile ->
-                                                // Trigger Processing if enabled
+                                                // Scan to get Uri for gallery
+                                                MediaScannerConnection.scanFile(context, arrayOf(videoFile.absolutePath), arrayOf("video/mp4")) { _, uri ->
+                                                    scope.launch(Dispatchers.Main) {
+                                                        lastMediaUri = uri
+                                                    }
+                                                }
+
                                                 if (isSmartStabilizationOn || isObjectTrackingOn) {
                                                     isProcessing = true
                                                     processingMessage = if (isSmartStabilizationOn) "Stabilizing Video..." else "Tracking Object..."
@@ -376,13 +379,12 @@ fun InstagramCameraScreen(
                                                                  NativeBridge.trackObjectVideo(videoFile.absolutePath, outputFile.absolutePath)
                                                             }
 
-                                                            // Notify gallery of processed file
-                                                            android.media.MediaScannerConnection.scanFile(
-                                                                context,
-                                                                arrayOf(outputFile.absolutePath),
-                                                                arrayOf("video/mp4"),
-                                                                null
-                                                            )
+                                                            // Update Gallery Uri to processed file
+                                                            MediaScannerConnection.scanFile(context, arrayOf(outputFile.absolutePath), arrayOf("video/mp4")) { _, uri ->
+                                                                scope.launch(Dispatchers.Main) {
+                                                                    lastMediaUri = uri
+                                                                }
+                                                            }
 
                                                             withContext(Dispatchers.Main) {
                                                                 isProcessing = false
@@ -397,7 +399,6 @@ fun InstagramCameraScreen(
                                                         }
                                                     }
                                                 } else {
-                                                    // No processing
                                                     scope.launch(Dispatchers.Main) {
                                                         android.widget.Toast.makeText(context, "Video Saved!", android.widget.Toast.LENGTH_SHORT).show()
                                                     }
@@ -409,7 +410,7 @@ fun InstagramCameraScreen(
                                         )
                                     }
                                 }
-                                else -> { /* No action for scan modes generally, or maybe capture frame */ }
+                                else -> { }
                             }
                         }
                     )
@@ -417,7 +418,6 @@ fun InstagramCameraScreen(
                     // Switch Camera
                     IconButton(
                         onClick = {
-                            // Update state in App.kt via callback
                             val newLens = if (cameraLens == CameraLens.BACK) CameraLens.FRONT else CameraLens.BACK
                             onCameraLensChange(newLens)
                         },
@@ -452,13 +452,10 @@ fun InstagramCameraScreen(
 
         // 6. Image Preview Overlay (Temporary)
         lastCapturedImage?.let { bitmap ->
-            // Only show for 3 seconds then fade out
             LaunchedEffect(bitmap) {
                 delay(3000)
                 lastCapturedImage = null
             }
-            // Small preview handled in gallery button, but if we want full screen preview:
-            // Keeping it simple for now as requested "Instagram like"
         }
     }
 }
@@ -477,12 +474,11 @@ fun RightControlBar(
         verticalArrangement = Arrangement.spacedBy(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Smart Stabilization Icon (Small Size)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(
                 onClick = onToggleStabilization,
                 modifier = Modifier
-                    .size(40.dp) // Reduced from 48dp
+                    .size(40.dp)
                     .background(if (isStabilizationOn) Color.Yellow else Color.Black.copy(alpha = 0.5f), CircleShape)
                     .border(1.dp, Color.White, CircleShape)
             ) {
@@ -490,7 +486,7 @@ fun RightControlBar(
                     imageVector = Lucide.Activity,
                     contentDescription = "Stabilize",
                     tint = if (isStabilizationOn) Color.Black else Color.White,
-                    modifier = Modifier.size(20.dp) // Smaller icon
+                    modifier = Modifier.size(20.dp)
                 )
             }
             if (isStabilizationOn) {
@@ -498,12 +494,11 @@ fun RightControlBar(
             }
         }
 
-        // Object Tracking Icon (Small Size)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(
                 onClick = onToggleTracking,
                 modifier = Modifier
-                    .size(40.dp) // Reduced from 48dp
+                    .size(40.dp)
                     .background(if (isTrackingOn) Color.Yellow else Color.Black.copy(alpha = 0.5f), CircleShape)
                     .border(1.dp, Color.White, CircleShape)
             ) {
@@ -511,7 +506,7 @@ fun RightControlBar(
                     imageVector = Lucide.Scan,
                     contentDescription = "Track",
                     tint = if (isTrackingOn) Color.Black else Color.White,
-                    modifier = Modifier.size(20.dp) // Smaller icon
+                    modifier = Modifier.size(20.dp)
                 )
             }
             if (isTrackingOn) {
@@ -533,6 +528,16 @@ fun TopControlBar(
     onQualityToggle: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
+    // Shared styling
+    val ratioText = when(aspectRatio) {
+        AspectRatio.RATIO_1_1 -> "1:1"
+        AspectRatio.RATIO_4_5 -> "4:5"
+        AspectRatio.RATIO_3_4 -> "3:4"
+        AspectRatio.RATIO_9_16 -> "9:16"
+        AspectRatio.RATIO_4_3 -> "3:4"
+        AspectRatio.RATIO_16_9 -> "9:16"
+    }
+
     if (currentMode == CameraMode.PHOTO) {
         // Photo Mode: Settings (Left), Aspect Ratio (Center), Flash (Right)
         Box(
@@ -549,14 +554,6 @@ fun TopControlBar(
             }
 
             // Center: Aspect Ratio
-            val ratioText = when(aspectRatio) {
-                AspectRatio.RATIO_1_1 -> "1:1"
-                AspectRatio.RATIO_4_5 -> "4:5"
-                AspectRatio.RATIO_3_4 -> "3:4"
-                AspectRatio.RATIO_9_16 -> "9:16"
-                AspectRatio.RATIO_4_3 -> "3:4"
-                AspectRatio.RATIO_16_9 -> "9:16"
-            }
             Text(
                 text = ratioText,
                 color = Color.White,
@@ -585,39 +582,22 @@ fun TopControlBar(
             }
         }
     } else {
-        // Video Mode: Evenly Spaced Row
-        Row(
+        // Video Mode: Settings (Left), Quality (Center), Flash (Right)
+        // Ratio removed.
+        Box(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(top = 48.dp, start = 16.dp, end = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(top = 48.dp, start = 16.dp, end = 16.dp)
         ) {
-            // 1. Settings
-            IconButton(onClick = onSettingsClick) {
+             // Left
+            IconButton(
+                onClick = onSettingsClick,
+                modifier = Modifier.align(Alignment.CenterStart)
+            ) {
                 Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
             }
 
-            // 2. Aspect Ratio
-            val ratioText = when(aspectRatio) {
-                AspectRatio.RATIO_1_1 -> "1:1"
-                AspectRatio.RATIO_4_5 -> "4:5"
-                AspectRatio.RATIO_3_4 -> "3:4"
-                AspectRatio.RATIO_9_16 -> "9:16"
-                AspectRatio.RATIO_4_3 -> "3:4"
-                AspectRatio.RATIO_16_9 -> "9:16"
-            }
-            Text(
-                text = ratioText,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .border(1.dp, Color.White, CircleShape)
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clickable { onAspectRatioToggle() }
-            )
-
-            // 3. Video Quality
+            // Center: Quality
             val qualityText = if (isFHDQuality) "FHD" else "HD"
             val borderColor = if (isFHDQuality) Color.Yellow else Color.White
             val textColor = if (isFHDQuality) Color.Yellow else Color.White
@@ -627,13 +607,17 @@ fun TopControlBar(
                 color = textColor,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
+                    .align(Alignment.Center)
                     .border(1.dp, borderColor, CircleShape)
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .clickable { onQualityToggle() }
             )
 
-            // 4. Flash
-            IconButton(onClick = onFlashToggle) {
+            // Right
+            IconButton(
+                onClick = onFlashToggle,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
                 Icon(
                     imageVector = when(flashMode) {
                         FlashMode.ON -> Lucide.Flashlight
@@ -688,25 +672,22 @@ fun ShutterButton(
 ) {
     val size by animateFloatAsState(if (isRecording) 80f else 72f)
     val innerSize by animateFloatAsState(if (isRecording) 30f else 60f)
-    val cornerRadius by animateFloatAsState(if (isRecording) 8f else 50f) // Square when recording
+    val cornerRadius by animateFloatAsState(if (isRecording) 8f else 50f)
     val color = if (currentMode == CameraMode.VIDEO) Color.Red else Color.White
 
     Box(
         modifier = Modifier
-            .size(90.dp) // Outer ring container
+            .size(90.dp)
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { onClick() })
             },
         contentAlignment = Alignment.Center
     ) {
-        // Outer Ring
         Box(
             modifier = Modifier
                 .size(size.dp)
                 .border(4.dp, Color.White, CircleShape)
         )
-
-        // Inner Button
         Box(
             modifier = Modifier
                 .size(innerSize.dp)
@@ -721,9 +702,6 @@ fun PluginOutputs(
     currentMode: CameraMode,
     recognizedText: String?
 ) {
-    val context = LocalContext.current
-
-    // Text OCR Overlay
     val isTextVisible = (currentMode == CameraMode.TEXT && recognizedText != null)
 
     AnimatedVisibility(
@@ -746,92 +724,107 @@ fun PluginOutputs(
 }
 
 private suspend fun handlePhotoCapture(
+    context: Context,
     cameraController: CameraController,
     imageSaverPlugin: ImageSaverPlugin,
     aspectRatio: AspectRatio,
-    onImageCaptured: (ImageBitmap) -> Unit
+    onImageCaptured: (ImageBitmap, Uri?) -> Unit
 ) {
     when (val result = cameraController.takePictureToFile()) {
         is ImageCaptureResult.SuccessWithFile -> {
-            println("Image captured: ${result.filePath}")
             try {
                 withContext(Dispatchers.IO) {
-                    // 1. Native Processing REMOVED for stability
-                    // We rely purely on Kotlin for Aspect Ratio cropping.
+                    val file = File(result.filePath)
+                    val exif = ExifInterface(file.absolutePath)
+                    val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
 
-                    // 2. Kotlin Cropping (If needed)
-                    // CameraX outputs 4:3 or 16:9. We need to crop to target ratio.
-                    try {
-                        val file = File(result.filePath)
-                        // Only crop if ratio is not native (assume native is 4:3 or 16:9)
-                        // Simplified: Always check dimensions and crop center
+                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(file.absolutePath, options)
+                    val rawW = options.outWidth
+                    val rawH = options.outHeight
 
-                        // Decode bounds only first
-                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeFile(file.absolutePath, options)
-                        val w = options.outWidth
-                        val h = options.outHeight
+                    val isRotated = (orientation == ExifInterface.ORIENTATION_ROTATE_90 || orientation == ExifInterface.ORIENTATION_ROTATE_270)
+                    val visualW = if (isRotated) rawH else rawW
+                    val visualH = if (isRotated) rawW else rawH
 
-                        if (w > 0 && h > 0) {
-                            val targetRatio = when(aspectRatio) {
-                                AspectRatio.RATIO_1_1 -> 1.0f
-                                AspectRatio.RATIO_4_5 -> 0.8f
-                                AspectRatio.RATIO_3_4, AspectRatio.RATIO_4_3 -> 0.75f
-                                AspectRatio.RATIO_9_16, AspectRatio.RATIO_16_9 -> 0.5625f
-                            }
+                    val targetRatioValue = when(aspectRatio) {
+                        AspectRatio.RATIO_1_1 -> 1.0f
+                        AspectRatio.RATIO_4_5 -> 0.8f
+                        AspectRatio.RATIO_3_4, AspectRatio.RATIO_4_3 -> 0.75f
+                        AspectRatio.RATIO_9_16, AspectRatio.RATIO_16_9 -> 0.5625f
+                    }
 
-                            val currentRatio = w.toFloat() / h.toFloat()
+                    val currentRatio = visualW.toFloat() / visualH.toFloat()
 
-                            // Crop only if significant difference
-                            if (Math.abs(currentRatio - targetRatio) > 0.01) {
-                                val targetW: Int
-                                val targetH: Int
+                    val cropVisualW: Int
+                    val cropVisualH: Int
 
-                                if (currentRatio > targetRatio) {
-                                    // Too wide, crop width
-                                    targetH = h
-                                    targetW = (h * targetRatio).toInt()
-                                } else {
-                                    // Too tall, crop height
-                                    targetW = w
-                                    targetH = (w / targetRatio).toInt()
-                                }
+                    if (currentRatio > targetRatioValue) {
+                         cropVisualH = visualH
+                         cropVisualW = (visualH * targetRatioValue).toInt()
+                    } else {
+                         cropVisualW = visualW
+                         cropVisualH = (visualW / targetRatioValue).toInt()
+                    }
 
-                                val cx = (w - targetW) / 2
-                                val cy = (h - targetH) / 2
+                    val cropRawW = if (isRotated) cropVisualH else cropVisualW
+                    val cropRawH = if (isRotated) cropVisualW else cropVisualH
 
-                                // Load only cropped region using BitmapRegionDecoder (Low Memory)
-                                val decoder = android.graphics.BitmapRegionDecoder.newInstance(file.absolutePath, false)
-                                val region = android.graphics.Rect(cx, cy, cx + targetW, cy + targetH)
-                                val croppedBitmap = decoder.decodeRegion(region, BitmapFactory.Options())
+                    val cx = (rawW - cropRawW) / 2
+                    val cy = (rawH - cropRawH) / 2
 
-                                // Overwrite file
-                                file.outputStream().use { out ->
-                                    croppedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, out)
-                                }
-                                croppedBitmap.recycle()
-                            }
+                    val cropRect = android.graphics.Rect(cx, cy, cx + cropRawW, cy + cropRawH)
+
+                    val decoder = android.graphics.BitmapRegionDecoder.newInstance(file.absolutePath, false)
+                    val croppedRawBitmap = decoder.decodeRegion(cropRect, BitmapFactory.Options())
+
+                    val finalBitmap = if (orientation != ExifInterface.ORIENTATION_NORMAL && orientation != ExifInterface.ORIENTATION_UNDEFINED) {
+                        val matrix = Matrix()
+                        when (orientation) {
+                             ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                             ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                             ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                        }
+                        val rotated = Bitmap.createBitmap(croppedRawBitmap, 0, 0, croppedRawBitmap.width, croppedRawBitmap.height, matrix, true)
+                        if (rotated != croppedRawBitmap) croppedRawBitmap.recycle()
+                        rotated
+                    } else {
+                        croppedRawBitmap
+                    }
+
+                    file.outputStream().use { out ->
+                        finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+                    }
+
+                    // Create thumbnail for preview to avoid OOM
+                    val previewBmp = try {
+                        val maxDim = 1080
+                        if (finalBitmap.width > maxDim || finalBitmap.height > maxDim) {
+                            val ratio = maxDim.toFloat() / Math.max(finalBitmap.width, finalBitmap.height)
+                            val w = (finalBitmap.width * ratio).toInt()
+                            val h = (finalBitmap.height * ratio).toInt()
+                            val scaled = Bitmap.createScaledBitmap(finalBitmap, w, h, true)
+                            if (scaled != finalBitmap) finalBitmap.recycle()
+                            scaled.asImageBitmap()
+                        } else {
+                            finalBitmap.asImageBitmap()
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        finalBitmap.asImageBitmap()
                     }
 
-                    // Safe decode for preview
-                    val previewOptions = BitmapFactory.Options().apply { inSampleSize = 8 }
-                    val bitmap = BitmapFactory.decodeFile(result.filePath, previewOptions)
-                    if (bitmap != null) {
-                         withContext(Dispatchers.Main) {
-                             onImageCaptured(bitmap.asImageBitmap())
-                         }
+                    val scanContinuation = suspendCancellableCoroutine<Uri?> { cont ->
+                        MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf("image/jpeg")) { _, uri ->
+                            cont.resume(uri)
+                        }
                     }
+                    val contentUri = scanContinuation
 
-                    // Notify gallery
-                    try {
-                        val mediaScanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
-                        mediaScanIntent.data = Uri.fromFile(File(result.filePath))
-                    } catch (e: Exception) {}
+                    withContext(Dispatchers.Main) {
+                        onImageCaptured(previewBmp, contentUri)
+                    }
                 }
-            } catch (e: Exception) {
+            } catch(e: Exception) {
                 e.printStackTrace()
             }
         }
