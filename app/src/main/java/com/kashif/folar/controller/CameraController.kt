@@ -251,7 +251,9 @@ class CameraController(
     }
 
     private fun configureVideoCapture(resolutionSelector: ResolutionSelector) {
+        // Enforce aspect ratio in video recording by setting the strategy on Recorder.Builder
         val recorder = Recorder.Builder()
+            .setAspectRatioStrategy(aspectRatio.toCameraXAspectRatioStrategy()) // <-- Fix: Apply aspect ratio strategy here
             .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
             .build()
         videoCapture = VideoCapture.withOutput(recorder)
@@ -674,8 +676,10 @@ class CameraController(
         }
         cameraLens = if (cameraLens == CameraLens.BACK) CameraLens.FRONT else CameraLens.BACK
 
-        // Restart camera logic now handles unbind/bind cleanly using stored previewView
-        restartCamera()
+        // Clean unbind before rebinding to avoid Surface/OpenGL conflicts
+        cameraProvider?.unbindAll()
+
+        previewView?.let { bindCamera(it) }
     }
     
     fun getCameraLens(): CameraLens? {

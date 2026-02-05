@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -125,6 +126,9 @@ private fun CameraContent(
     var imageFormat by remember { mutableStateOf(ImageFormat.JPEG) }
     var qualityPrioritization by remember { mutableStateOf(QualityPrioritization.BALANCED) }
     var cameraDeviceType by remember { mutableStateOf(CameraDeviceType.WIDE_ANGLE) }
+    // Hoisted state for Camera Lens
+    var cameraLens by remember { mutableStateOf(CameraLens.BACK) }
+
     // configVersion usage is deprecated with new StateHolder logic but kept for now as state trigger
     var configVersion by remember { mutableStateOf(0) }
 
@@ -140,7 +144,7 @@ private fun CameraContent(
 
     val cameraState by rememberFolarState(
         config = CameraConfiguration(
-            cameraLens = CameraLens.BACK,
+            cameraLens = cameraLens, // Use hoisted state
             flashMode = FlashMode.OFF,
             imageFormat = imageFormat,
             directory = Directory.PICTURES,
@@ -217,6 +221,7 @@ private fun CameraContent(
             imageFormat = imageFormat,
             qualityPrioritization = qualityPrioritization,
             cameraDeviceType = cameraDeviceType,
+            cameraLens = cameraLens, // Pass hoisted state
             onAspectRatioChange = { ratio: AspectRatio ->
                 aspectRatio = ratio
                 configVersion++
@@ -235,6 +240,10 @@ private fun CameraContent(
             },
             onCameraDeviceTypeChange = { device: CameraDeviceType ->
                 cameraDeviceType = device
+                configVersion++
+            },
+            onCameraLensChange = { lens: CameraLens ->
+                cameraLens = lens
                 configVersion++
             }
         )

@@ -69,6 +69,7 @@ import com.composables.icons.lucide.X
 import com.kashif.folar.controller.CameraController
 import com.kashif.folar.enums.AspectRatio
 import com.kashif.folar.enums.CameraDeviceType
+import com.kashif.folar.enums.CameraLens
 import com.kashif.folar.enums.FlashMode
 import com.kashif.folar.enums.ImageFormat
 import com.kashif.folar.enums.QualityPrioritization
@@ -109,11 +110,13 @@ fun InstagramCameraScreen(
     imageFormat: ImageFormat,
     qualityPrioritization: QualityPrioritization,
     cameraDeviceType: CameraDeviceType,
+    cameraLens: CameraLens, // Added parameter
     onAspectRatioChange: (AspectRatio) -> Unit,
     onResolutionChange: (Pair<Int, Int>?) -> Unit,
     onImageFormatChange: (ImageFormat) -> Unit,
     onQualityPrioritizationChange: (QualityPrioritization) -> Unit,
-    onCameraDeviceTypeChange: (CameraDeviceType) -> Unit
+    onCameraDeviceTypeChange: (CameraDeviceType) -> Unit,
+    onCameraLensChange: (CameraLens) -> Unit // Added callback
 ) {
     val scope = rememberCoroutineScope()
     val cameraController = cameraState.controller
@@ -122,10 +125,11 @@ fun InstagramCameraScreen(
     var currentMode by remember { mutableStateOf(CameraMode.PHOTO) }
     var isRecording by remember { mutableStateOf(false) }
     var isStabilizing by remember { mutableStateOf(false) }
-    // Removed isProcessingPhoto (no longer blocking)
     var lastCapturedImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var flashMode by remember { mutableStateOf(FlashMode.OFF) }
-    var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_3_4) } // Default to Portrait 3:4
+
+    // We use the passed aspectRatio prop for UI state to ensure sync
+    // var selectedRatio by remember { mutableStateOf(AspectRatio.RATIO_3_4) } // Removed local state
 
     // Plugin States
     var isOCREnabled by remember { mutableStateOf(false) }
@@ -135,7 +139,6 @@ fun InstagramCameraScreen(
     // Logic to handle mode switching side effects
     LaunchedEffect(currentMode, cameraController) {
         // Reset plugin states
-        // QR Scanning enabled in PHOTO and VIDEO modes
         isOCREnabled = (currentMode == CameraMode.TEXT)
 
         if (isOCREnabled) {
@@ -178,7 +181,7 @@ fun InstagramCameraScreen(
         // Note: FolarScreen renders the preview. We are just the UI overlay.
 
         // 1.5 Letterboxing Masks
-        val ratioValue = when(selectedRatio) {
+        val ratioValue = when(aspectRatio) {
             AspectRatio.RATIO_4_3 -> 3f/4f
             AspectRatio.RATIO_3_4 -> 3f/4f // Portrait 3:4 is physically same ratio value (0.75) for math
             AspectRatio.RATIO_16_9 -> 9f/16f
@@ -189,7 +192,7 @@ fun InstagramCameraScreen(
 
         // Draw black bars (Letterboxing)
         // We show bars for everything except 9:16 which is "Full" for this context
-        if (selectedRatio != AspectRatio.RATIO_9_16) {
+        if (aspectRatio != AspectRatio.RATIO_9_16) {
              Canvas(modifier = Modifier.fillMaxSize()) {
                  val screenW = size.width
                  val screenH = size.height
@@ -226,10 +229,10 @@ fun InstagramCameraScreen(
                 cameraController.toggleFlashMode()
                 flashMode = cameraController.getFlashMode() ?: FlashMode.OFF
             },
-            selectedRatio = selectedRatio,
+            selectedRatio = aspectRatio,
             onRatioToggle = {
                 // Cycle: 1:1 -> 4:5 -> 3:4 -> 9:16
-                val newRatio = when(selectedRatio) {
+                val newRatio = when(aspectRatio) {
                     AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_5
                     AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_3_4
                     AspectRatio.RATIO_3_4 -> AspectRatio.RATIO_9_16
@@ -237,17 +240,9 @@ fun InstagramCameraScreen(
                     else -> AspectRatio.RATIO_1_1 // Default fallback for old states
                 }
 
-                selectedRatio = newRatio
-
                 // Map to CameraX supported ratios (4:3 or 16:9)
-                val cameraXRatio = when(newRatio) {
-                    AspectRatio.RATIO_1_1 -> AspectRatio.RATIO_4_3
-                    AspectRatio.RATIO_4_5 -> AspectRatio.RATIO_4_3
-                    AspectRatio.RATIO_3_4 -> AspectRatio.RATIO_4_3
-                    AspectRatio.RATIO_9_16 -> AspectRatio.RATIO_16_9
-                    else -> AspectRatio.RATIO_4_3
-                }
-                onAspectRatioChange(cameraXRatio)
+                // Note: Actual logic happens in CameraController, here we just ask for the visual aspect ratio
+                onAspectRatioChange(newRatio)
             },
             onSettingsClick = { /* Open Bottom Sheet if needed */ }
         )
@@ -320,7 +315,7 @@ fun InstagramCameraScreen(
                             when(currentMode) {
                                 CameraMode.PHOTO -> {
                                     scope.launch {
-                                        handlePhotoCapture(cameraController, imageSaverPlugin, selectedRatio) { bmp ->
+                                        handlePhotoCapture(cameraController, imageSaverPlugin, aspectRatio) { bmp ->
                                             lastCapturedImage = bmp
                                         }
                                     }
@@ -379,9 +374,9 @@ fun InstagramCameraScreen(
                     // Switch Camera
                     IconButton(
                         onClick = {
-                            cameraController.toggleCameraLens()
-                            // Force state update to refresh UI if needed, though toggleCameraLens should trigger recomposition if state is observed correctly
-                            // We can also cycle device types if that's what user expects, but usually switch is Front/Back
+                            // Update state in App.kt via callback
+                            val newLens = if (cameraLens == CameraLens.BACK) CameraLens.FRONT else CameraLens.BACK
+                            onCameraLensChange(newLens)
                         },
                         modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)
                     ) {
@@ -434,53 +429,56 @@ fun TopControlBar(
     onRatioToggle: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 48.dp, start = 16.dp, end = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(top = 48.dp, start = 16.dp, end = 16.dp)
     ) {
-        IconButton(onClick = onSettingsClick) {
+        // Left: Settings
+        IconButton(
+            onClick = onSettingsClick,
+            modifier = Modifier.align(Alignment.CenterStart)
+        ) {
             Icon(imageVector = Lucide.Settings, contentDescription = "Settings", tint = Color.White)
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            // Aspect Ratio Button
-            val ratioText = when(selectedRatio) {
-                AspectRatio.RATIO_1_1 -> "1:1"
-                AspectRatio.RATIO_4_5 -> "4:5"
-                AspectRatio.RATIO_3_4 -> "3:4"
-                AspectRatio.RATIO_9_16 -> "9:16"
-                // Handle legacy enums just in case to avoid crash, map to nearest visual
-                AspectRatio.RATIO_4_3 -> "3:4"
-                AspectRatio.RATIO_16_9 -> "9:16"
-            }
-            Text(
-                text = ratioText,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .border(1.dp, Color.White, CircleShape)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .clickable { onRatioToggle() }
-            )
-
-            IconButton(onClick = onFlashToggle) {
-                Icon(
-                    imageVector = when(flashMode) {
-                        FlashMode.ON -> Lucide.Flashlight
-                        FlashMode.OFF -> Lucide.FlashlightOff
-                        FlashMode.AUTO -> Lucide.Flashlight
-                    },
-                    contentDescription = "Flash",
-                    tint = Color.White
-                )
-            }
+        // Center: Ratio
+        val ratioText = when(selectedRatio) {
+            AspectRatio.RATIO_1_1 -> "1:1"
+            AspectRatio.RATIO_4_5 -> "4:5"
+            AspectRatio.RATIO_3_4 -> "3:4"
+            AspectRatio.RATIO_9_16 -> "9:16"
+            // Handle legacy enums
+            AspectRatio.RATIO_4_3 -> "3:4"
+            AspectRatio.RATIO_16_9 -> "9:16"
         }
 
-        // Removed ChevronLeft / Toggle API button
-        Spacer(modifier = Modifier.size(48.dp)) // Placeholder to balance layout if needed, or just remove
+        Text(
+            text = ratioText,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .border(1.dp, Color.White, CircleShape)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .clickable { onRatioToggle() }
+        )
+
+        // Right: Flash (Previously Switch API was here)
+        IconButton(
+            onClick = onFlashToggle,
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            Icon(
+                imageVector = when(flashMode) {
+                    FlashMode.ON -> Lucide.Flashlight
+                    FlashMode.OFF -> Lucide.FlashlightOff
+                    FlashMode.AUTO -> Lucide.Flashlight
+                },
+                contentDescription = "Flash",
+                tint = Color.White
+            )
+        }
     }
 }
 
