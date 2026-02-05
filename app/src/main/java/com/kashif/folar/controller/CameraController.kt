@@ -266,23 +266,28 @@ class CameraController(
 
     private fun configureVideoCapture(resolutionSelector: ResolutionSelector) {
         // Prioritize specific quality based on user selection (FHD or HD)
-        // Fallback strategy: FHD -> HD -> SD -> Lowest
-        // We do NOT use resolutionSelector for video anymore to avoid restricting quality
+        // User Requirement: Standard HD (720p), Switch to FHD (1080p) if icon pressed.
+        // We strictly avoid SD (480p) or lower to prevent pixelation.
 
-        val quality = if (isFHDQuality) Quality.FHD else Quality.HD
-
-        // Build robust selector with fallbacks
-        val qualitySelector = QualitySelector.from(
-            quality,
-            FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
-        )
+        val qualitySelector = if (isFHDQuality) {
+            // Priority: FHD -> UHD -> HD. (Strictly high definition)
+            QualitySelector.fromOrderedList(
+                listOf(Quality.FHD, Quality.UHD, Quality.HD),
+                FallbackStrategy.higherQualityOrLowerThan(Quality.HD) // Fallback mainly to higher
+            )
+        } else {
+            // Priority: HD -> FHD -> UHD. (Standard HD)
+            QualitySelector.fromOrderedList(
+                listOf(Quality.HD, Quality.FHD, Quality.UHD),
+                FallbackStrategy.higherQualityOrLowerThan(Quality.HD)
+            )
+        }
 
         val recorder = Recorder.Builder()
             .setQualitySelector(qualitySelector)
             .build()
 
         videoCapture = VideoCapture.Builder(recorder)
-            // Removed .setResolutionSelector(resolutionSelector) to allow QualitySelector to dictate resolution
             .build()
     }
 

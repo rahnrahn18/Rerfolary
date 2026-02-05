@@ -64,13 +64,14 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     const char* inputPath = env->GetStringUTFChars(jInputPath, 0);
     const char* outputPath = env->GetStringUTFChars(jOutputPath, 0);
 
-    LOGI("Starting Smart Stabilization: %s", inputPath);
+    LOGI("Starting Super Gimbal Stabilization: %s", inputPath);
 
     VideoCapture cap(inputPath);
     if (!cap.isOpened()) {
-        LOGE("Failed to open input video");
+        LOGE("CRITICAL: Failed to open input video at path: %s", inputPath);
         env->ReleaseStringUTFChars(jInputPath, inputPath);
         env->ReleaseStringUTFChars(jOutputPath, outputPath);
+        // TODO: Throw Java Exception
         return;
     }
 
@@ -79,33 +80,50 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     int height = int(cap.get(CAP_PROP_FRAME_HEIGHT));
     double fps = cap.get(CAP_PROP_FPS);
 
+    if (n_frames <= 0) {
+        LOGW("Warning: Frame count is 0 or unreadable, processing until stream ends.");
+        n_frames = 100000; // Arbitrary high limit
+    }
+
+    LOGI("Video Info: %dx%d @ %.2f fps, Frames: %d", width, height, fps, n_frames);
+
     // Ensure dimensions are even to make encoders happy
     int safe_width = (width % 2 == 0) ? width : width - 1;
     int safe_height = (height % 2 == 0) ? height : height - 1;
     Size safeSize(safe_width, safe_height);
 
-    // Setup Video Writer - Try MJPG first for max compatibility
+    // Setup Video Writer - Strict H.264 Requirement with Fallbacks
     VideoWriter writer;
     int fourcc;
 
-    LOGI("Attempting to open writer with MJPG...");
-    fourcc = VideoWriter::fourcc('M', 'J', 'P', 'G');
+    // 1. Try AVC1 (H.264)
+    LOGI("Attempting avc1 (H.264)...");
+    fourcc = VideoWriter::fourcc('a', 'v', 'c', '1');
     writer.open(outputPath, fourcc, fps, safeSize);
 
+    // 2. Try H264 (Common alias)
     if (!writer.isOpened()) {
-        LOGW("MJPG failed, trying mp4v...");
+        LOGW("avc1 failed, trying H264...");
+        fourcc = VideoWriter::fourcc('H', '2', '6', '4');
+        writer.open(outputPath, fourcc, fps, safeSize);
+    }
+
+    // 3. Try mp4v (MPEG-4) - Good compatibility
+    if (!writer.isOpened()) {
+        LOGW("H264 failed, trying mp4v...");
         fourcc = VideoWriter::fourcc('m', 'p', '4', 'v');
         writer.open(outputPath, fourcc, fps, safeSize);
     }
 
+    // 4. Last Resort: MJPG
     if (!writer.isOpened()) {
-        LOGW("mp4v failed, trying avc1...");
-        fourcc = VideoWriter::fourcc('a', 'v', 'c', '1');
+        LOGW("mp4v failed, trying MJPG (Low efficiency)...");
+        fourcc = VideoWriter::fourcc('M', 'J', 'P', 'G');
         writer.open(outputPath, fourcc, fps, safeSize);
     }
 
     if (!writer.isOpened()) {
-         LOGE("Failed to open output writer with all codecs. Check permissions or path.");
+         LOGE("CRITICAL: Failed to open output writer. File permissions?");
          cap.release();
          env->ReleaseStringUTFChars(jInputPath, inputPath);
          env->ReleaseStringUTFChars(jOutputPath, outputPath);
@@ -128,19 +146,22 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
     transforms.push_back({0, 0, 0}); // Frame 0
 
     // Feature Detector (ORB is fast and robust)
-    Ptr<Feature2D> detector = ORB::create(2000); // Detect 2000 features per frame
+    Ptr<Feature2D> detector = ORB::create(3000); // Increased features for better lock
     vector<KeyPoint> prev_kps;
     Mat prev_desc;
     detector->detectAndCompute(prev_gray, noArray(), prev_kps, prev_desc);
 
     Mat curr, curr_gray;
 
-    for (int i = 1; i < n_frames; i++) {
-        bool success = cap.read(curr);
-        if (!success) {
-            LOGW("Failed to read frame %d", i);
-            break;
-        }
+    // We need to read all frames to build the full trajectory for global smoothing
+    // But memory is limited on Android. We will process in two passes:
+    // Pass 1: Read video, compute transforms, save transforms.
+    // Pass 2: Re-open video, apply smoothed transforms.
+
+    int frame_idx = 1;
+    while(true) {
+        if (!cap.read(curr)) break;
+        if (curr.empty()) break;
 
         cvtColor(curr, curr_gray, COLOR_BGR2GRAY);
 
@@ -148,20 +169,26 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         Mat curr_desc;
         detector->detectAndCompute(curr_gray, noArray(), curr_kps, curr_desc);
 
-        if (prev_kps.size() > 10 && curr_kps.size() > 10 && !prev_desc.empty() && !curr_desc.empty()) {
+        if (prev_kps.size() > 20 && curr_kps.size() > 20 && !prev_desc.empty() && !curr_desc.empty()) {
             BFMatcher matcher(NORM_HAMMING, true); // Cross-check
             vector<DMatch> matches;
             matcher.match(prev_desc, curr_desc, matches);
 
             // Filter good matches
             vector<Point2f> p_prev, p_curr;
-            for(auto& m : matches) {
-                p_prev.push_back(prev_kps[m.queryIdx].pt);
-                p_curr.push_back(curr_kps[m.trainIdx].pt);
+            // Sort matches by distance
+            std::sort(matches.begin(), matches.end());
+            // Keep top 50%
+            int keep = (int)(matches.size() * 0.5);
+
+            for(int i=0; i<keep; i++) {
+                 p_prev.push_back(prev_kps[matches[i].queryIdx].pt);
+                 p_curr.push_back(curr_kps[matches[i].trainIdx].pt);
             }
 
             if (p_prev.size() > 10) {
                 // RANSAC Global Motion Estimation
+                // limit to 5.0 pixel reprojection error
                 Mat T = estimateAffinePartial2D(p_prev, p_curr, noArray(), RANSAC, 5.0);
 
                 if (!T.empty()) {
@@ -182,7 +209,8 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         prev_kps = curr_kps;
         curr_desc.copyTo(prev_desc);
 
-        if (i % 30 == 0) LOGI("Analyzing frame %d/%d (ORB+RANSAC)", i, n_frames);
+        if (frame_idx % 30 == 0) LOGI("Pass 1: Analyzing frame %d", frame_idx);
+        frame_idx++;
     }
 
     // --- Step 2: Compute Trajectory ---
@@ -196,9 +224,11 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         trajectory.push_back({x, y, a});
     }
 
-    // --- Step 3: Smooth Trajectory (Gaussian / Sliding Window) ---
+    // --- Step 3: Smooth Trajectory (Super Stable Gimbal Mode) ---
     vector<Trajectory> smoothed_trajectory;
-    int radius = 90; // VERY Aggressive Smoothing (~3 seconds buffer)
+    // Radius 90 means ~3 seconds of lookahead/lookbehind at 30fps.
+    // This creates a very "floating" feel.
+    int radius = 90;
 
     for(size_t i=0; i < trajectory.size(); i++) {
         double sum_x = 0, sum_y = 0, sum_a = 0;
@@ -207,7 +237,10 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         for(int j = -radius; j <= radius; j++) {
             if(i+j >= 0 && i+j < trajectory.size()) {
                 // Gaussian weight
-                double weight = exp(-(j*j) / (2.0 * (radius/3.0) * (radius/3.0))); // Wider bell curve
+                // Sigma = radius / 3 ensures 99% of weight is within radius
+                double sigma = radius / 2.5;
+                double dist = (double)j;
+                double weight = exp(-(dist*dist) / (2.0 * sigma * sigma));
 
                 sum_x += trajectory[i+j].x * weight;
                 sum_y += trajectory[i+j].y * weight;
@@ -216,32 +249,50 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
             }
         }
 
-        smoothed_trajectory.push_back({sum_x/sum_weight, sum_y/sum_weight, sum_a/sum_weight});
+        if (sum_weight > 0) {
+            smoothed_trajectory.push_back({sum_x/sum_weight, sum_y/sum_weight, sum_a/sum_weight});
+        } else {
+            smoothed_trajectory.push_back(trajectory[i]);
+        }
     }
 
     // --- Step 4: Apply Stabilization & Enhancement ---
-    cap.set(CAP_PROP_POS_FRAMES, 0);
+    // Re-open video for Pass 2
+    cap.open(inputPath);
+    if (!cap.isOpened()) {
+        LOGE("Failed to re-open video for pass 2");
+        return;
+    }
+
     Mat T(2, 3, CV_64F);
-    Mat frame, stabilized, cropped;
+    Mat frame, stabilized;
 
     // CLAHE for smart enhancement
     Ptr<CLAHE> clahe = createCLAHE();
     clahe->setClipLimit(2.0);
     clahe->setTilesGridSize(Size(8, 8));
 
-    // Zoom to hide black borders
-    double scale = 1.4; // 40% zoom (Aggressive Crop for Extreme Stabilization)
+    // Dynamic Zoom Strategy
+    // For "Super Stable", we need significant cropping to allow for the frame to shift.
+    // 1.35x zoom provides ~17% buffer on all sides.
+    double scale = 1.35;
     Mat T_scale = getRotationMatrix2D(Point2f(width/2, height/2), 0, scale);
     Mat T_scale_3x3 = Mat::eye(3, 3, CV_64F);
     T_scale.copyTo(T_scale_3x3(Rect(0,0,3,2)));
 
-    for (int i = 0; i < n_frames && i < smoothed_trajectory.size(); i++) {
+    int current_frame = 0;
+    while(true) {
         if (!cap.read(frame)) break;
+        if (frame.empty()) break;
 
-        // Calculate jitter correction
-        double diff_x = smoothed_trajectory[i].x - trajectory[i].x;
-        double diff_y = smoothed_trajectory[i].y - trajectory[i].y;
-        double diff_a = smoothed_trajectory[i].a - trajectory[i].a;
+        if (current_frame >= smoothed_trajectory.size()) break;
+
+        // Calculate jitter correction (Smoothed - Actual)
+        // We want to move the frame such that the Actual path becomes the Smoothed path.
+        // Diff = Smoothed - Actual
+        double diff_x = smoothed_trajectory[current_frame].x - trajectory[current_frame].x;
+        double diff_y = smoothed_trajectory[current_frame].y - trajectory[current_frame].y;
+        double diff_a = smoothed_trajectory[current_frame].a - trajectory[current_frame].a;
 
         // Construct transform matrix
         T.at<double>(0,0) = cos(diff_a);
@@ -251,7 +302,8 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         T.at<double>(0,2) = diff_x;
         T.at<double>(1,2) = diff_y;
 
-        // Combine Stabilization and Zoom into one transform to preserve quality
+        // Combine Stabilization and Zoom
+        // T_final = T_scale * T_stabilize
         Mat T_3x3 = Mat::eye(3, 3, CV_64F);
         T.copyTo(T_3x3(Rect(0,0,3,2)));
 
@@ -271,12 +323,15 @@ Java_com_kashif_folar_utils_NativeBridge_stabilizeVideo(
         } else {
             writer.write(stabilized);
         }
+
+        if (current_frame % 30 == 0) LOGI("Pass 2: Writing frame %d", current_frame);
+        current_frame++;
     }
 
     cap.release();
     writer.release();
 
-    LOGI("Smart Stabilization Complete");
+    LOGI("Super Gimbal Stabilization Complete. Output at: %s", outputPath);
 
     env->ReleaseStringUTFChars(jInputPath, inputPath);
     env->ReleaseStringUTFChars(jOutputPath, outputPath);
@@ -288,7 +343,6 @@ Java_com_kashif_folar_utils_NativeBridge_processImage(
     jobject /* this */,
     jstring jPath) {
     LOGW("processImage called but implementation is disabled/removed.");
-    // No-op stub to prevent UnsatisfiedLinkError
 }
 
 JNIEXPORT void JNICALL
@@ -301,11 +355,11 @@ Java_com_kashif_folar_utils_NativeBridge_trackObjectVideo(
     const char* inputPath = env->GetStringUTFChars(jInputPath, 0);
     const char* outputPath = env->GetStringUTFChars(jOutputPath, 0);
 
-    LOGI("Starting Object Tracking: %s", inputPath);
+    LOGI("Starting Object Lock Tracking: %s", inputPath);
 
     VideoCapture cap(inputPath);
     if (!cap.isOpened()) {
-        LOGE("Failed to open input video");
+        LOGE("Failed to open input video for tracking");
         env->ReleaseStringUTFChars(jInputPath, inputPath);
         env->ReleaseStringUTFChars(jOutputPath, outputPath);
         return;
@@ -316,70 +370,55 @@ Java_com_kashif_folar_utils_NativeBridge_trackObjectVideo(
     int height = int(cap.get(CAP_PROP_FRAME_HEIGHT));
     double fps = cap.get(CAP_PROP_FPS);
 
-    // Ensure dimensions are even
+    // Setup Video Writer (Same robust codec logic)
     int safe_width = (width % 2 == 0) ? width : width - 1;
     int safe_height = (height % 2 == 0) ? height : height - 1;
     Size safeSize(safe_width, safe_height);
 
-    // Setup Video Writer - Try MJPG first
     VideoWriter writer;
-    int fourcc;
-
-    LOGI("Attempting to open tracking writer with MJPG...");
-    fourcc = VideoWriter::fourcc('M', 'J', 'P', 'G');
+    int fourcc = VideoWriter::fourcc('a', 'v', 'c', '1');
     writer.open(outputPath, fourcc, fps, safeSize);
 
     if (!writer.isOpened()) {
-        LOGW("MJPG failed, trying mp4v...");
         fourcc = VideoWriter::fourcc('m', 'p', '4', 'v');
         writer.open(outputPath, fourcc, fps, safeSize);
     }
-
     if (!writer.isOpened()) {
-        LOGE("Failed to open tracking output writer");
-        cap.release();
-        env->ReleaseStringUTFChars(jInputPath, inputPath);
-        env->ReleaseStringUTFChars(jOutputPath, outputPath);
-        return;
+         LOGE("Failed to open writer for tracking.");
+         cap.release();
+         env->ReleaseStringUTFChars(jInputPath, inputPath);
+         env->ReleaseStringUTFChars(jOutputPath, outputPath);
+         return;
     }
 
+    // --- Object Tracking Logic (Lock-On) ---
     Mat prev, prev_gray;
     cap >> prev;
     if (prev.empty()) return;
     cvtColor(prev, prev_gray, COLOR_BGR2GRAY);
 
-    // -- Object Detection / Initialization --
-    // Assume subject is in the center 40% of the screen initially
-    Rect roi(width * 0.3, height * 0.3, width * 0.4, height * 0.4);
+    // Initialize tracking on the center subject
+    // We use a central ROI (Region of Interest)
+    Rect roi(width * 0.35, height * 0.35, width * 0.3, height * 0.3);
     Mat mask = Mat::zeros(prev_gray.size(), CV_8UC1);
     mask(roi).setTo(255);
 
     vector<Point2f> prev_pts;
-    goodFeaturesToTrack(prev_gray, prev_pts, 100, 0.05, 10, mask);
+    goodFeaturesToTrack(prev_gray, prev_pts, 200, 0.01, 10, mask);
+
+    // Cumulative camera motion (to compensate)
+    double cum_dx = 0;
+    double cum_dy = 0;
 
     Mat curr, curr_gray;
     Mat frame_out;
 
-    // Accumulate camera movement to counteract it (keep object static)
-    // Actually, we want to shift the frame so the object remains at center.
-    // If object moves RIGHT (dx > 0), we shift frame LEFT (dx < 0) to keep it in center.
-
-    // We calculate "Camera Path" relative to Object.
-    // Ideally: Object position should remain constant (width/2, height/2).
-    // Current Object Pos = Initial Object Pos + Accumulate(Motion).
-    // Shift = Initial - Current.
-
-    double current_obj_x = 0;
-    double current_obj_y = 0;
-    // We track relative motion.
+    // Zoom scale to hide edges (1.4x is aggressive but needed for lock-on)
+    double scale = 1.4;
+    Mat T_scale = getRotationMatrix2D(Point2f(width/2, height/2), 0, scale);
 
     Ptr<CLAHE> clahe = createCLAHE();
     clahe->setClipLimit(2.0);
-    clahe->setTilesGridSize(Size(8, 8));
-
-    // Write first frame
-    applySmartEnhancement(prev, clahe);
-    writer.write(prev);
 
     for (int i = 1; i < n_frames; i++) {
         if (!cap.read(curr)) break;
@@ -407,25 +446,34 @@ Java_com_kashif_folar_utils_NativeBridge_trackObjectVideo(
             }
         }
 
+        // If the object moved (dx, dy), the camera must shift (-dx, -dy) to keep it in place.
         if (count > 0) {
             dx /= count;
             dy /= count;
+
+            // Accumulate required compensation
+            cum_dx -= dx;
+            cum_dy -= dy;
         }
 
-        // Accumulate object movement relative to frame
-        current_obj_x += dx;
-        current_obj_y += dy;
+        // Apply Shift + Zoom
+        // T_final = T_scale * T_shift
+        Mat T_shift = (Mat_<double>(2,3) << 1, 0, cum_dx, 0, 1, cum_dy);
 
-        // Calculate shift to bring object back to original position
-        // Shift = - (Accumulated Movement)
-        Mat T = (Mat_<double>(2,3) << 1, 0, -current_obj_x, 0, 1, -current_obj_y);
+        // We can't multiply 2x3 easily, so we expand to 3x3
+        Mat T_scale_3x3 = Mat::eye(3, 3, CV_64F);
+        T_scale.copyTo(T_scale_3x3(Rect(0,0,3,2)));
 
-        warpAffine(curr, frame_out, T, curr.size());
+        Mat T_shift_3x3 = Mat::eye(3, 3, CV_64F);
+        T_shift.copyTo(T_shift_3x3(Rect(0,0,3,2)));
 
-        // Enhance
+        Mat T_final_3x3 = T_scale_3x3 * T_shift_3x3;
+        Mat T_final = T_final_3x3(Rect(0,0,3,2));
+
+        warpAffine(curr, frame_out, T_final, curr.size());
+
         applySmartEnhancement(frame_out, clahe);
 
-        // Ensure output matches safe writer dimensions
         if (frame_out.size() != safeSize) {
             Mat resized;
             resize(frame_out, resized, safeSize);
@@ -434,32 +482,18 @@ Java_com_kashif_folar_utils_NativeBridge_trackObjectVideo(
             writer.write(frame_out);
         }
 
-        // Update tracking points
-        // If points lost, re-detect around the NEW tracked position
-        if (good_new_pts.size() < 20) {
-            // New ROI center = Original Center + current_obj_x, y
-            // But wait, current_obj_x is the shift of the OBJECT relative to the FRAME.
-            // So the object is now at Center + current_obj.
-            double obj_cx = (width/2) + current_obj_x;
-            double obj_cy = (height/2) + current_obj_y;
-
-            // Clamp to screen
-            int roi_w = width * 0.3;
-            int roi_h = height * 0.3;
-            int roi_x = std::max(0, std::min(width - roi_w, (int)(obj_cx - roi_w/2)));
-            int roi_y = std::max(0, std::min(height - roi_h, (int)(obj_cy - roi_h/2)));
-
-            Rect new_roi(roi_x, roi_y, roi_w, roi_h);
-            Mat new_mask = Mat::zeros(curr_gray.size(), CV_8UC1);
-            new_mask(new_roi).setTo(255);
-
-            goodFeaturesToTrack(curr_gray, good_new_pts, 100, 0.05, 10, new_mask);
+        // Refresh tracking points if they are lost or drift off screen
+        if (good_new_pts.size() < 30 || i % 30 == 0) {
+             // Re-detect in the center of the shifted frame?
+             // Ideally we want to track the *original* object which might have moved.
+             // But for "Digital Gimbal", we just want to latch onto whatever is in the center NOW.
+             goodFeaturesToTrack(curr_gray, good_new_pts, 200, 0.01, 10, mask);
         }
 
         prev_pts = good_new_pts;
         curr_gray.copyTo(prev_gray);
 
-        if (i % 30 == 0) LOGI("Tracking frame %d/%d", i, n_frames);
+        if (i % 30 == 0) LOGI("Tracking frame %d", i);
     }
 
     cap.release();
