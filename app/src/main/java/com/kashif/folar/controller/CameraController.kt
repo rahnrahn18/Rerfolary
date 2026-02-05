@@ -253,10 +253,11 @@ class CameraController(
     private fun configureVideoCapture(resolutionSelector: ResolutionSelector) {
         // Enforce aspect ratio in video recording by setting the strategy on Recorder.Builder
         val recorder = Recorder.Builder()
-            .setAspectRatioStrategy(aspectRatio.toCameraXAspectRatioStrategy()) // <-- Fix: Apply aspect ratio strategy here
             .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
             .build()
-        videoCapture = VideoCapture.withOutput(recorder)
+        videoCapture = VideoCapture.Builder(recorder)
+            .setResolutionSelector(resolutionSelector)
+            .build()
     }
 
     fun updateImageAnalyzer() {
